@@ -71,13 +71,13 @@ Each comment must be attached to a syntactic anchor with one of three attachment
 
 ### Keywords and Casing
 - SQL keywords: **UPPERCASE** (SELECT, FROM, WHERE, etc.)
-- Identifiers: **preserved casing**
+- Identifiers: **preserved casing** (always, even if they match keyword names)
 - Built-in functions: **UPPERCASE** (COUNT, SUM, etc.)
-- **Context-sensitive casing** (aspirational):
+- **Context-sensitive casing** (implemented):
   - Keywords only uppercase in keyword positions
   - Identifiers preserve casing even if they match keyword names
   - Examples: `SELECT order FROM t` (order is column), `ORDER BY x` (ORDER is keyword)
-  - Current limitation: Keywords detected during lexing, context-sensitivity not yet implemented
+  - Architecture: Lexer uses unified `Token::Word`, parser determines context
 
 ### Query Hints
 - Hint comments: `/*+ hint_name(args) */`

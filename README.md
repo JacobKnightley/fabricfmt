@@ -33,12 +33,28 @@ The formatter reprints from scratch, normalizing all spacing:
 - **Single space** between other tokens where needed
 - Original whitespace and line breaks are completely discarded
 
-### Keywords
+### Keywords and Context-Sensitive Identifiers
 
-- All SQL keywords are UPPERCASE
-- Built-in functions are UPPERCASE (COUNT, SUM, COALESCE, etc.)
-- Identifiers preserve their original casing
-- User-defined functions preserve their original casing
+- **Keywords** are UPPERCASE in keyword positions (SELECT, FROM, WHERE, JOIN, ON, AND, OR, etc.)
+- **Identifiers** always preserve their original casing (even if they match keyword names)
+- **Built-in functions** are UPPERCASE (COUNT, SUM, COALESCE, etc.)
+- **User-defined functions** preserve their original casing
+
+**Context-Sensitive Example:**
+```sql
+-- Input
+SELECT order, key, value FROM items WHERE x = 1 AND y = 2
+
+-- Output (identifiers preserve casing)
+SELECT
+     order
+    ,key
+    ,value
+FROM items
+WHERE
+    x=1
+    AND y=2
+```
 
 ### Query Hints (Planned)
 
