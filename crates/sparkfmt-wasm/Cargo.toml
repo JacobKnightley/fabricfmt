@@ -1,0 +1,22 @@
+[package]
+name = "sparkfmt-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sparkfmt-core = { path = "../sparkfmt-core" }
+wasm-bindgen.workspace = true
+console_error_panic_hook = { workspace = true, optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = "z"
+lto = true
