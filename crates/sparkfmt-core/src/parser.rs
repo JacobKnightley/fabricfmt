@@ -1,5 +1,6 @@
 use crate::error::FormatError;
 use crate::ir::*;
+use crate::keywords;
 use regex::Regex;
 use lazy_static::lazy_static;
 
@@ -137,7 +138,7 @@ impl Lexer {
             
             // Check if it's a keyword
             let upper = text.to_uppercase();
-            if is_keyword(&upper) {
+            if keywords::is_keyword(&upper) {
                 return Ok(Token::Keyword(upper));
             }
             
@@ -183,16 +184,6 @@ impl Lexer {
             _ => Err(FormatError::new(format!("Expected symbol {}, got {:?}", symbol, token))),
         }
     }
-}
-
-fn is_keyword(s: &str) -> bool {
-    matches!(
-        s,
-        "SELECT" | "FROM" | "WHERE" | "GROUP" | "BY" | "HAVING" | "ORDER" | "LIMIT" |
-        "INNER" | "LEFT" | "RIGHT" | "FULL" | "OUTER" | "CROSS" | "JOIN" | "ON" |
-        "AND" | "OR" | "NOT" | "IN" | "IS" | "NULL" | "AS" | "DISTINCT" |
-        "UNION" | "ALL" | "WITH" | "ASC" | "DESC"
-    )
 }
 
 fn parse_statement(lexer: &mut Lexer) -> Result<Statement, FormatError> {

@@ -1,4 +1,5 @@
 use crate::ir::*;
+use crate::functions;
 
 const BASE_INDENT: usize = 4;
 const FIRST_ITEM_INDENT: usize = 5;
@@ -139,7 +140,13 @@ fn format_expression(expr: &Expression, output: &mut String) {
             output.push_str(".*");
         }
         Expression::FunctionCall { name, args } => {
-            output.push_str(name);
+            // Built-in functions are UPPERCASE, user-defined functions preserve casing
+            let formatted_name = if functions::is_builtin_function(name) {
+                name.to_uppercase()
+            } else {
+                name.clone()
+            };
+            output.push_str(&formatted_name);
             output.push('(');
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {

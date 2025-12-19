@@ -72,7 +72,7 @@ Each comment must be attached to a syntactic anchor with one of three attachment
 ### Keywords and Casing
 - SQL keywords: **UPPERCASE** (SELECT, FROM, WHERE, etc.)
 - Identifiers: **preserved casing**
-- Built-in functions: **lowercase** (count, sum, etc.)
+- Built-in functions: **UPPERCASE** (COUNT, SUM, etc.)
 
 ### Aliases
 - Column aliases: **always use AS** (`col AS alias`)

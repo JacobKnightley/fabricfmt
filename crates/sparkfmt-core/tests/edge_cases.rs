@@ -49,12 +49,12 @@ fn test_qualified_column() {
 
 #[test]
 fn test_function_with_multiple_args() {
-    let input = "select coalesce(a, b, 'default') from t";
+    let input = "select COALESCE(a, b, 'default') from t";
     let result = format_sql(input).unwrap();
     
     println!("Result:\n{}", result);
     
-    assert!(result.contains("coalesce(a,b,'default')"));
+    assert!(result.contains("COALESCE(a,b,'default')"));
 }
 
 #[test]
@@ -81,14 +81,14 @@ fn test_multiple_joins() {
 
 #[test]
 fn test_multiple_join_conditions() {
-    let input = "select * from a join b on a.id=b.id and a.key=b.key and a.type=b.type";
+    let input = "select * from a join b on a.id=b.id and a.col=b.col and a.type=b.type";
     let result = format_sql(input).unwrap();
     
     println!("Result:\n{}", result);
     
     // Multiple ON conditions should be on separate lines
     assert!(result.contains("    ON a.id=b.id\n"));
-    assert!(result.contains("    AND a.key=b.key\n"));
+    assert!(result.contains("    AND a.col=b.col\n"));
     assert!(result.contains("    AND a.type=b.type"));
 }
 
@@ -140,13 +140,13 @@ fn test_table_alias_without_as() {
 
 #[test]
 fn test_column_alias_with_as() {
-    let input = "select count(*) cnt from t";
+    let input = "select COUNT(*) cnt from t";
     let result = format_sql(input).unwrap();
     
     println!("Result:\n{}", result);
     
     // Column alias should always have AS
-    assert!(result.contains("count(*) AS cnt"));
+    assert!(result.contains("COUNT(*) AS cnt"));
 }
 
 #[test]
@@ -164,27 +164,27 @@ fn test_no_trailing_semicolon() {
 
 #[test]
 fn test_having_single_condition() {
-    let input = "select a, count(*) from t group by a having count(*)>10";
+    let input = "select a, COUNT(*) from t group by a having COUNT(*)>10";
     let result = format_sql(input).unwrap();
     
     println!("Result:\n{}", result);
     
     // Single HAVING condition should be inline
-    assert!(result.contains("HAVING count(*)>10"));
+    assert!(result.contains("HAVING COUNT(*)>10"));
     assert!(!result.contains("HAVING\n    count"));
 }
 
 #[test]
 fn test_having_multiple_conditions() {
-    let input = "select a, count(*) from t group by a having count(*)>10 and sum(x)>100";
+    let input = "select a, COUNT(*) from t group by a having COUNT(*)>10 and SUM(x)>100";
     let result = format_sql(input).unwrap();
     
     println!("Result:\n{}", result);
     
     // Multiple HAVING conditions should be on separate lines
     assert!(result.contains("HAVING\n"));
-    assert!(result.contains("    count(*)>10\n"));
-    assert!(result.contains("    AND sum(x)>100"));
+    assert!(result.contains("    COUNT(*)>10\n"));
+    assert!(result.contains("    AND SUM(x)>100"));
 }
 
 #[test]

@@ -2,6 +2,8 @@ pub mod parser;
 pub mod formatter;
 pub mod ir;
 pub mod error;
+pub mod keywords;
+pub mod functions;
 
 pub use error::FormatError;
 

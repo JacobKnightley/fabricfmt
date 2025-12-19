@@ -7,7 +7,7 @@ fn test_acceptance_example() {
     let expected = r#"SELECT
      a
     ,b
-    ,count(*) AS c
+    ,COUNT(*) AS c
 FROM t
 WHERE
     x=1
@@ -15,7 +15,7 @@ WHERE
 GROUP BY
      a
     ,b
-HAVING count(*)>1
+HAVING COUNT(*)>1
 ORDER BY
      a
 LIMIT 10"#;
