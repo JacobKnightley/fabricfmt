@@ -175,6 +175,10 @@ pub enum Expression {
     Star,
     QualifiedStar(String),
     Literal(String),
+    TypedLiteral {
+        type_name: String,         // DATE, TIMESTAMP, INTERVAL
+        value: String,
+    },
     
     // === GENERIC (scalable) ===
     FunctionCall {
@@ -201,6 +205,7 @@ pub enum Expression {
     Cast {
         expr: Box<Expression>,
         data_type: String,
+        pg_style: bool, // true for :: syntax, false for CAST(...) syntax
     },
     WindowFunction {
         function: Box<Expression>,

@@ -231,7 +231,7 @@ impl Lexer {
         }
         
         // Try multi-char operators first (longest match first)
-        for symbol in &["<=", ">=", "<>", "!=", "||"] {
+        for symbol in &["<=", ">=", "<>", "!=", "||", "::"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
@@ -239,7 +239,7 @@ impl Lexer {
         }
         
         // Try single-char symbols
-        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~"] {
+        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~", ":"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
@@ -827,6 +827,16 @@ fn parse_postfix_expression(lexer: &mut Lexer) -> Result<Expression, FormatError
                     index: Box::new(index),
                 };
             }
+            ParserToken::Symbol(s) if s == "::" => {
+                // PostgreSQL-style cast: expr::type
+                lexer.next()?;
+                let data_type = parse_identifier(lexer)?;
+                expr = Expression::Cast {
+                    expr: Box::new(expr),
+                    data_type,
+                    pg_style: true,
+                };
+            }
             ParserToken::Word(w) if w.eq_ignore_ascii_case("OVER") => {
                 lexer.expect_keyword("OVER")?;
                 lexer.expect_symbol("(")?;
@@ -938,6 +948,61 @@ fn parse_primary_expression(lexer: &mut Lexer) -> Result<Expression, FormatError
                 return Ok(Expression::Exists { subquery: Box::new(subquery), negated: false });
             }
             
+            // Check for typed literals (DATE, TIMESTAMP, INTERVAL)
+            if lexer.is_keyword("DATE")? {
+                let type_name = lexer.parse_identifier()?;
+                let token = lexer.peek()?;
+                if matches!(token, ParserToken::StringLiteral(_)) {
+                    let value = match lexer.next()? {
+                        ParserToken::StringLiteral(s) => s,
+                        _ => unreachable!(),
+                    };
+                    return Ok(Expression::TypedLiteral { type_name, value });
+                }
+                // If not followed by string literal, treat as identifier
+                return Ok(Expression::Identifier(type_name));
+            }
+            
+            if lexer.is_keyword("TIMESTAMP")? {
+                let type_name = lexer.parse_identifier()?;
+                let token = lexer.peek()?;
+                if matches!(token, ParserToken::StringLiteral(_)) {
+                    let value = match lexer.next()? {
+                        ParserToken::StringLiteral(s) => s,
+                        _ => unreachable!(),
+                    };
+                    return Ok(Expression::TypedLiteral { type_name, value });
+                }
+                // If not followed by string literal, treat as identifier
+                return Ok(Expression::Identifier(type_name));
+            }
+            
+            if lexer.is_keyword("INTERVAL")? {
+                let type_name = lexer.parse_identifier()?;
+                // INTERVAL has a different format: INTERVAL 1 DAY
+                // Parse the numeric value
+                let token = lexer.peek()?;
+                let value = match token {
+                    ParserToken::Number(ref n) => {
+                        let num = n.clone();
+                        lexer.next()?;
+                        // Parse the unit (DAY, MONTH, YEAR, etc.)
+                        let unit = lexer.parse_identifier()?;
+                        format!("{} {}", num, unit)
+                    }
+                    ParserToken::StringLiteral(ref s) => {
+                        let str_val = s.clone();
+                        lexer.next()?;
+                        str_val
+                    }
+                    _ => {
+                        // Invalid INTERVAL syntax, treat as identifier
+                        return Ok(Expression::Identifier(type_name));
+                    }
+                };
+                return Ok(Expression::TypedLiteral { type_name, value });
+            }
+            
             let name = lexer.parse_identifier()?;
             
             // Check for function call or qualified identifier
@@ -1029,7 +1094,7 @@ fn parse_cast_expression(lexer: &mut Lexer) -> Result<Expression, FormatError> {
     let data_type = parse_data_type(lexer)?;
     lexer.expect_symbol(")")?;
     
-    Ok(Expression::Cast { expr: Box::new(expr), data_type })
+    Ok(Expression::Cast { expr: Box::new(expr), data_type, pg_style: false })
 }
 
 fn parse_data_type(lexer: &mut Lexer) -> Result<String, FormatError> {

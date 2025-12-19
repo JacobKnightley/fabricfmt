@@ -234,6 +234,25 @@ fn format_expression(expr: &Expression, output: &mut String) {
             format_expression(expr, output);
         }
         Expression::Literal(lit) => output.push_str(lit),
+        Expression::TypedLiteral { type_name, value } => {
+            // Format as TYPE 'value' or TYPE value unit (for INTERVAL)
+            output.push_str(&type_name.to_uppercase());
+            output.push(' ');
+            // For INTERVAL, uppercase the unit as well
+            if type_name.eq_ignore_ascii_case("INTERVAL") && !value.starts_with('\'') {
+                // Parse number and unit separately
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    output.push_str(parts[0]); // number
+                    output.push(' ');
+                    output.push_str(&parts[1..].join(" ").to_uppercase()); // unit(s)
+                } else {
+                    output.push_str(value);
+                }
+            } else {
+                output.push_str(value);
+            }
+        }
         Expression::Parenthesized(expr) => {
             output.push('(');
             format_expression(expr, output);
@@ -257,12 +276,18 @@ fn format_expression(expr: &Expression, output: &mut String) {
             }
             output.push_str(" END");
         }
-        Expression::Cast { expr, data_type } => {
-            output.push_str("CAST(");
-            format_expression(expr, output);
-            output.push_str(" AS ");
-            output.push_str(data_type);
-            output.push(')');
+        Expression::Cast { expr, data_type, pg_style } => {
+            if *pg_style {
+                format_expression(expr, output);
+                output.push_str("::");
+                output.push_str(&data_type.to_uppercase());
+            } else {
+                output.push_str("CAST(");
+                format_expression(expr, output);
+                output.push_str(" AS ");
+                output.push_str(&data_type.to_uppercase());
+                output.push(')');
+            }
         }
         Expression::WindowFunction { function, partition_by, order_by, frame } => {
             format_expression(function, output);
