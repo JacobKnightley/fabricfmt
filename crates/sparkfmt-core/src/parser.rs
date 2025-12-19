@@ -1283,7 +1283,7 @@ fn parse_values_list(lexer: &mut Lexer) -> Result<Vec<Vec<String>>, FormatError>
             let token = lexer.next()?;
             match token {
                 Token::Number(n) => row.push(n),
-                Token::StringLiteral(s) => row.push(format!("'{}'", s)),
+                Token::StringLiteral(s) => row.push(s),  // Already includes quotes
                 Token::Word(w) => row.push(w),
                 _ => return Err(FormatError::new("Unexpected token in VALUES")),
             }
@@ -1337,7 +1337,7 @@ fn parse_expression_as_string(lexer: &mut Lexer) -> Result<String, FormatError> 
             Token::Word(w) => parts.push(w),
             Token::Symbol(s) => parts.push(s),
             Token::Number(n) => parts.push(n),
-            Token::StringLiteral(s) => parts.push(format!("'{}'", s)),
+            Token::StringLiteral(s) => parts.push(s),  // Already includes quotes
             _ => {}
         }
     }
@@ -1565,7 +1565,7 @@ fn parse_merge_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> R
             Token::Word(w) => on_parts.push(w),
             Token::Symbol(s) => on_parts.push(s),
             Token::Number(n) => on_parts.push(n),
-            Token::StringLiteral(s) => on_parts.push(format!("'{}'", s)),
+            Token::StringLiteral(s) => on_parts.push(s),  // Already includes quotes
             Token::Eof => break,
         }
     }
@@ -1597,7 +1597,7 @@ fn parse_merge_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> R
                 Token::Word(w) => clause_parts.push(w.to_uppercase()),
                 Token::Symbol(s) => clause_parts.push(s),
                 Token::Number(n) => clause_parts.push(n),
-                Token::StringLiteral(s) => clause_parts.push(format!("'{}'", s)),
+                Token::StringLiteral(s) => clause_parts.push(s),  // Already includes quotes
                 _ => {}
             }
         }

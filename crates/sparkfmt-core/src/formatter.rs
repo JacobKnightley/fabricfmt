@@ -632,10 +632,10 @@ fn format_insert_values(stmt: &InsertValuesStmt, output: &mut String, indent: us
     output.push_str(" VALUES");
     
     for (i, row) in stmt.values.iter().enumerate() {
+        output.push('\n');
         if i > 0 {
             output.push(',');
         }
-        output.push('\n');
         output.push('(');
         for (j, val) in row.iter().enumerate() {
             if j > 0 {
