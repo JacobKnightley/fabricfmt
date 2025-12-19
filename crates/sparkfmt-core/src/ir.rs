@@ -281,8 +281,52 @@ pub struct FromClause {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableRef {
-    pub name: String,
+    pub source: TableSource,
     pub alias: Option<String>,
+    pub lateral_views: Vec<LateralView>,
+    pub pivot: Option<PivotClause>,
+    pub unpivot: Option<UnpivotClause>,
+    pub tablesample: Option<TableSample>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TableSource {
+    Table(String),
+    Subquery(Box<Statement>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LateralView {
+    pub outer: bool,
+    pub function: Expression,
+    pub table_alias: String,
+    pub column_aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PivotClause {
+    pub aggregate: Expression,
+    pub pivot_column: String,
+    pub pivot_values: Vec<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnpivotClause {
+    pub value_column: String,
+    pub name_column: String,
+    pub unpivot_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableSample {
+    pub method: TableSampleMethod,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TableSampleMethod {
+    Percent(String),
+    Rows(String),
+    Bucket(String, String), // bucket x out of y
 }
 
 #[derive(Debug, Clone, PartialEq)]

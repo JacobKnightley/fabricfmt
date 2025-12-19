@@ -405,18 +405,109 @@ fn format_expression(expr: &Expression, output: &mut String) {
 
 fn format_from_clause(from: &FromClause, output: &mut String, indent: usize) {
     output.push_str("FROM ");
-    output.push_str(&from.table.name);
-    
-    // Table aliases never use AS
-    if let Some(ref alias) = from.table.alias {
-        output.push(' ');
-        output.push_str(alias);
-    }
+    format_table_ref(&from.table, output, indent);
     
     // Format joins
     for join in &from.joins {
         output.push('\n');
         format_join(join, output, indent);
+    }
+}
+
+fn format_table_ref(table_ref: &TableRef, output: &mut String, indent: usize) {
+    // Format the table source (table name or subquery)
+    match &table_ref.source {
+        TableSource::Table(name) => output.push_str(name),
+        TableSource::Subquery(stmt) => {
+            output.push_str("(\n");
+            let nested_indent = indent + BASE_INDENT;
+            output.push_str(&" ".repeat(nested_indent));
+            format_statement(stmt, output, nested_indent);
+            output.push('\n');
+            output.push_str(&" ".repeat(indent));
+            output.push(')');
+        }
+    }
+    
+    // Table aliases never use AS
+    if let Some(ref alias) = table_ref.alias {
+        output.push(' ');
+        output.push_str(alias);
+    }
+    
+    // Format TABLESAMPLE
+    if let Some(ref sample) = table_ref.tablesample {
+        output.push_str(" TABLESAMPLE (");
+        match &sample.method {
+            TableSampleMethod::Percent(p) => {
+                output.push_str(p);
+                output.push_str(" PERCENT");
+            }
+            TableSampleMethod::Rows(r) => {
+                output.push_str(r);
+                output.push_str(" ROWS");
+            }
+            TableSampleMethod::Bucket(b, t) => {
+                output.push_str("BUCKET ");
+                output.push_str(b);
+                output.push_str(" OUT OF ");
+                output.push_str(t);
+            }
+        }
+        output.push(')');
+    }
+    
+    // Format LATERAL VIEWs
+    for lateral in &table_ref.lateral_views {
+        output.push('\n');
+        output.push_str("LATERAL VIEW ");
+        if lateral.outer {
+            output.push_str("OUTER ");
+        }
+        format_expression(&lateral.function, output);
+        output.push(' ');
+        output.push_str(&lateral.table_alias);
+        output.push_str(" AS ");
+        for (i, col) in lateral.column_aliases.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(col);
+        }
+    }
+    
+    // Format PIVOT
+    if let Some(ref pivot) = table_ref.pivot {
+        output.push('\n');
+        output.push_str("PIVOT (");
+        format_expression(&pivot.aggregate, output);
+        output.push_str(" FOR ");
+        output.push_str(&pivot.pivot_column);
+        output.push_str(" IN (");
+        for (i, val) in pivot.pivot_values.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            format_expression(val, output);
+        }
+        output.push_str("))");
+    }
+    
+    // Format UNPIVOT
+    if let Some(ref unpivot) = table_ref.unpivot {
+        output.push('\n');
+        output.push_str("UNPIVOT (");
+        output.push_str(&unpivot.value_column);
+        output.push_str(" FOR ");
+        output.push_str(&unpivot.name_column);
+        output.push_str(" IN (");
+        for (i, col) in unpivot.unpivot_columns.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(col);
+        }
+        output.push_str("))");
     }
 }
 
@@ -445,13 +536,8 @@ fn format_join(join: &Join, output: &mut String, _indent: usize) {
         JoinType::Cross => output.push_str("CROSS JOIN "),
     }
     
-    output.push_str(&join.table.name);
-    
-    // Table aliases never use AS
-    if let Some(ref alias) = join.table.alias {
-        output.push(' ');
-        output.push_str(alias);
-    }
+    // Format the table reference (could be table or subquery)
+    format_table_ref(&join.table, output, _indent);
     
     // Format USING clause
     if !join.using_columns.is_empty() {

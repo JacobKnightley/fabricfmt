@@ -1204,7 +1204,16 @@ fn parse_join(lexer: &mut Lexer) -> Result<Join, FormatError> {
 }
 
 fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
-    let name = parse_identifier(lexer)?;
+    // Check if it's a subquery
+    let source = if lexer.is_symbol("(")? {
+        lexer.expect_symbol("(")?;
+        let subquery = parse_statement(lexer)?;
+        lexer.expect_symbol(")")?;
+        TableSource::Subquery(Box::new(subquery))
+    } else {
+        let name = parse_identifier(lexer)?;
+        TableSource::Table(name)
+    };
     
     let alias = if lexer.is_keyword("AS")? {
         lexer.expect_keyword("AS")?;
@@ -1217,6 +1226,10 @@ fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
                 // Make sure it's not a keyword
                 if !is_join_keyword(lexer)? && !lexer.is_keyword("ON")? && 
                    !lexer.is_keyword("USING")? &&
+                   !lexer.is_keyword("LATERAL")? &&
+                   !lexer.is_keyword("PIVOT")? &&
+                   !lexer.is_keyword("UNPIVOT")? &&
+                   !lexer.is_keyword("TABLESAMPLE")? &&
                    !lexer.is_keyword("WHERE")? && 
                    !lexer.is_keyword("GROUP")? && !lexer.is_keyword("HAVING")? &&
                    !lexer.is_keyword("ORDER")? && !lexer.is_keyword("LIMIT")? &&
@@ -1230,7 +1243,195 @@ fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
         }
     };
     
-    Ok(TableRef { name, alias })
+    // Parse LATERAL VIEWs
+    let mut lateral_views = Vec::new();
+    while lexer.is_keyword("LATERAL")? {
+        lateral_views.push(parse_lateral_view(lexer)?);
+    }
+    
+    // Parse PIVOT/UNPIVOT
+    let pivot = if lexer.is_keyword("PIVOT")? {
+        Some(parse_pivot(lexer)?)
+    } else {
+        None
+    };
+    
+    let unpivot = if lexer.is_keyword("UNPIVOT")? {
+        Some(parse_unpivot(lexer)?)
+    } else {
+        None
+    };
+    
+    // Parse TABLESAMPLE
+    let tablesample = if lexer.is_keyword("TABLESAMPLE")? {
+        Some(parse_tablesample(lexer)?)
+    } else {
+        None
+    };
+    
+    Ok(TableRef { 
+        source,
+        alias,
+        lateral_views,
+        pivot,
+        unpivot,
+        tablesample,
+    })
+}
+
+fn parse_lateral_view(lexer: &mut Lexer) -> Result<LateralView, FormatError> {
+    lexer.expect_keyword("LATERAL")?;
+    lexer.expect_keyword("VIEW")?;
+    
+    let outer = if lexer.is_keyword("OUTER")? {
+        lexer.expect_keyword("OUTER")?;
+        true
+    } else {
+        false
+    };
+    
+    // Parse the function call (e.g., EXPLODE(arr))
+    let function = parse_expression(lexer)?;
+    
+    // Parse table alias
+    let table_alias = parse_identifier(lexer)?;
+    
+    // Parse column aliases (optional AS keyword)
+    if lexer.is_keyword("AS")? {
+        lexer.expect_keyword("AS")?;
+    }
+    
+    let mut column_aliases = Vec::new();
+    // First column alias
+    column_aliases.push(parse_identifier(lexer)?);
+    
+    // Additional column aliases (comma-separated)
+    while lexer.is_symbol(",")? {
+        lexer.expect_symbol(",")?;
+        column_aliases.push(parse_identifier(lexer)?);
+    }
+    
+    Ok(LateralView {
+        outer,
+        function,
+        table_alias,
+        column_aliases,
+    })
+}
+
+fn parse_pivot(lexer: &mut Lexer) -> Result<PivotClause, FormatError> {
+    lexer.expect_keyword("PIVOT")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse aggregate expression (e.g., SUM(val))
+    let aggregate = parse_expression(lexer)?;
+    
+    lexer.expect_keyword("FOR")?;
+    
+    // Parse pivot column
+    let pivot_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("IN")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse pivot values
+    let mut pivot_values = Vec::new();
+    loop {
+        pivot_values.push(parse_expression(lexer)?);
+        
+        if lexer.is_symbol(",")? {
+            lexer.expect_symbol(",")?;
+        } else {
+            break;
+        }
+    }
+    
+    lexer.expect_symbol(")")?;
+    lexer.expect_symbol(")")?;
+    
+    Ok(PivotClause {
+        aggregate,
+        pivot_column,
+        pivot_values,
+    })
+}
+
+fn parse_unpivot(lexer: &mut Lexer) -> Result<UnpivotClause, FormatError> {
+    lexer.expect_keyword("UNPIVOT")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse value column
+    let value_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("FOR")?;
+    
+    // Parse name column
+    let name_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("IN")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse unpivot columns
+    let mut unpivot_columns = Vec::new();
+    loop {
+        unpivot_columns.push(parse_identifier(lexer)?);
+        
+        if lexer.is_symbol(",")? {
+            lexer.expect_symbol(",")?;
+        } else {
+            break;
+        }
+    }
+    
+    lexer.expect_symbol(")")?;
+    lexer.expect_symbol(")")?;
+    
+    Ok(UnpivotClause {
+        value_column,
+        name_column,
+        unpivot_columns,
+    })
+}
+
+fn parse_tablesample(lexer: &mut Lexer) -> Result<TableSample, FormatError> {
+    lexer.expect_keyword("TABLESAMPLE")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse the sample specification
+    // This could be "10 PERCENT", "100 ROWS", or "BUCKET 3 OUT OF 10"
+    let token = lexer.peek()?;
+    
+    let method = if lexer.is_keyword("BUCKET")? {
+        lexer.expect_keyword("BUCKET")?;
+        let bucket_num = parse_identifier(lexer)?;
+        lexer.expect_keyword("OUT")?;
+        lexer.expect_keyword("OF")?;
+        let total_buckets = parse_identifier(lexer)?;
+        TableSampleMethod::Bucket(bucket_num, total_buckets)
+    } else {
+        // Parse number
+        let num = match lexer.next()? {
+            ParserToken::Number(n) => n,
+            ParserToken::Word(w) => w,
+            other => return Err(FormatError::new(format!("Expected number in TABLESAMPLE, got {:?}", other))),
+        };
+        
+        // Check for PERCENT or ROWS
+        if lexer.is_keyword("PERCENT")? {
+            lexer.expect_keyword("PERCENT")?;
+            TableSampleMethod::Percent(num)
+        } else if lexer.is_keyword("ROWS")? {
+            lexer.expect_keyword("ROWS")?;
+            TableSampleMethod::Rows(num)
+        } else {
+            // Default to ROWS if not specified
+            TableSampleMethod::Rows(num)
+        }
+    };
+    
+    lexer.expect_symbol(")")?;
+    
+    Ok(TableSample { method })
 }
 
 fn parse_where_clause(lexer: &mut Lexer) -> Result<WhereClause, FormatError> {
