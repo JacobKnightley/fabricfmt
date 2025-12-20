@@ -54,11 +54,29 @@ function isKeywordToken(tokenType: number, tokenText: string): boolean {
  * - Identifier tokens (preserve casing)
  * - Function call tokens (uppercase)
  * - Clause-starting tokens (newline before)
+ * - List item separators (commas in SELECT, GROUP BY, ORDER BY)
+ * - Condition separators (AND/OR in WHERE/HAVING)
  */
 class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     identifierTokens: Set<number> = new Set();
     functionCallTokens: Set<number> = new Set();
     clauseStartTokens: Set<number> = new Set();
+    
+    // Track comma positions in list contexts (SELECT cols, GROUP BY, ORDER BY)
+    listItemCommas: Set<number> = new Set();
+    
+    // Track first item in each list context
+    listFirstItems: Set<number> = new Set();
+    
+    // Track condition operators (AND/OR) in WHERE/HAVING
+    conditionOperators: Set<number> = new Set();
+    
+    // Track WHERE/HAVING contexts with multiple conditions
+    multilineConditionClauses: Set<number> = new Set();
+    
+    // Track subquery depth for indentation
+    subqueryDepth: number = 0;
+    tokenDepthMap: Map<number, number> = new Map();
     
     visit(ctx: any): any {
         if (!ctx) return null;
@@ -131,35 +149,32 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
-    visitWhereClause(ctx: any): any {
-        this._markClauseStart(ctx);
-        return this.visitChildren(ctx);
-    }
-    
-    visitHavingClause(ctx: any): any {
-        this._markClauseStart(ctx);
-        return this.visitChildren(ctx);
-    }
-    
     visitAggregationClause(ctx: any): any {
         // GROUP BY clause
         this._markClauseStart(ctx);
+        // Mark commas in GROUP BY list
+        this._markCommasAtLevel(ctx);
         return this.visitChildren(ctx);
     }
     
     visitQueryOrganization(ctx: any): any {
         // ORDER BY, LIMIT, etc. - scan children for specific tokens
         // Mark ORDER token and LIMIT token separately
+        // Also track ORDER BY list commas
         if (ctx.children) {
             for (const child of ctx.children) {
                 if (child.symbol) {
                     const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
-                    if (symName === 'ORDER' || symName === 'LIMIT') {
+                    if (symName === 'ORDER') {
+                        this.clauseStartTokens.add(child.symbol.tokenIndex);
+                    } else if (symName === 'LIMIT') {
                         this.clauseStartTokens.add(child.symbol.tokenIndex);
                     }
                 }
             }
         }
+        // Mark commas in ORDER BY list
+        this._markCommasAtLevel(ctx);
         return this.visitChildren(ctx);
     }
     
@@ -176,7 +191,38 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     visitJoinRelation(ctx: any): any {
         // JOIN clauses
         this._markClauseStart(ctx);
+        // Check if JOIN has multiple conditions (AND/OR)
+        this._analyzeJoinConditions(ctx);
         return this.visitChildren(ctx);
+    }
+    
+    private _analyzeJoinConditions(ctx: any): void {
+        // Count AND/OR operators in JOIN ON condition
+        const operators = this._countConditionOperators(ctx);
+        if (operators > 0) {
+            // Multiple conditions - find the ON token (recursively in children)
+            const onTokenIndex = this._findOnToken(ctx);
+            if (onTokenIndex !== -1) {
+                this.multilineConditionClauses.add(onTokenIndex);
+            }
+        }
+    }
+    
+    private _findOnToken(ctx: any): number {
+        if (!ctx) return -1;
+        if (ctx.symbol) {
+            const symName = SqlBaseLexer.symbolicNames[ctx.symbol.type];
+            if (symName === 'ON') {
+                return ctx.symbol.tokenIndex;
+            }
+        }
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                const result = this._findOnToken(child);
+                if (result !== -1) return result;
+            }
+        }
+        return -1;
     }
     
     visitWindowDef(ctx: any): any {
@@ -215,6 +261,61 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    // ========== LIST CONTEXTS (SELECT columns, GROUP BY, ORDER BY) ==========
+    
+    visitNamedExpressionSeq(ctx: any): any {
+        // SELECT column list
+        this._markListContext(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    visitGroupByClause(ctx: any): any {
+        // Individual GROUP BY item - just recurse
+        return this.visitChildren(ctx);
+    }
+    
+    private _markCommasAtLevel(ctx: any): void {
+        // Mark commas at this level and recursively in children
+        if (!ctx || !ctx.children) return;
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                if (child.symbol.type === getTokenType('COMMA')) {
+                    this.listItemCommas.add(child.symbol.tokenIndex);
+                }
+            } else if (child.ruleIndex !== undefined) {
+                // Recurse into rule contexts
+                this._markCommasAtLevel(child);
+            }
+        }
+    }
+    
+    // ========== CONDITION CONTEXTS (WHERE/HAVING) ==========
+    
+    visitWhereClause(ctx: any): any {
+        this._markClauseStart(ctx);
+        // Check if this WHERE has multiple conditions
+        this._analyzeConditionClause(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    visitHavingClause(ctx: any): any {
+        this._markClauseStart(ctx);
+        // Check if this HAVING has multiple conditions
+        this._analyzeConditionClause(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    // ========== SUBQUERY TRACKING ==========
+    
+    visitQuerySpecification(ctx: any): any {
+        this.subqueryDepth++;
+        // Mark depth for all tokens in this query
+        this._markDepthForContext(ctx);
+        const result = this.visitChildren(ctx);
+        this.subqueryDepth--;
+        return result;
+    }
+    
     // Helper methods
     
     private _markIdentifier(ctx: any): void {
@@ -228,6 +329,84 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     private _markClauseStart(ctx: any): void {
         if (ctx.start) {
             this.clauseStartTokens.add(ctx.start.tokenIndex);
+        }
+    }
+    
+    private _markListContext(ctx: any): void {
+        // Mark commas in this list context by walking all children
+        if (ctx.children) {
+            let isFirst = true;
+            for (const child of ctx.children) {
+                if (child.symbol) {
+                    const tokenType = child.symbol.type;
+                    if (tokenType === getTokenType('COMMA')) {
+                        this.listItemCommas.add(child.symbol.tokenIndex);
+                    } else if (isFirst && tokenType !== getTokenType('COMMA') && child.symbol.tokenIndex >= 0) {
+                        // Mark first non-comma token
+                        this.listFirstItems.add(child.symbol.tokenIndex);
+                        isFirst = false;
+                    }
+                } else if (child.children) {
+                    // Recurse to find commas in nested contexts
+                    this._markCommasInContext(child);
+                }
+            }
+        }
+    }
+    
+    private _markCommasInContext(ctx: any): void {
+        if (!ctx || !ctx.children) return;
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                if (child.symbol.type === getTokenType('COMMA')) {
+                    this.listItemCommas.add(child.symbol.tokenIndex);
+                }
+            } else if (child.children) {
+                this._markCommasInContext(child);
+            }
+        }
+    }
+    
+    private _analyzeConditionClause(ctx: any): void {
+        // Count AND/OR operators in WHERE/HAVING
+        const operators = this._countConditionOperators(ctx);
+        if (operators > 0) {
+            // Multiple conditions - mark for multiline
+            if (ctx.start) {
+                this.multilineConditionClauses.add(ctx.start.tokenIndex);
+            }
+        }
+    }
+    
+    private _countConditionOperators(ctx: any): number {
+        let count = 0;
+        if (!ctx) return count;
+        
+        // Recursively count AND/OR tokens
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                if (child.symbol) {
+                    const symbolicName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                    if (symbolicName === 'AND' || symbolicName === 'OR') {
+                        count++;
+                        this.conditionOperators.add(child.symbol.tokenIndex);
+                    }
+                }
+                // Recurse into children
+                count += this._countConditionOperators(child);
+            }
+        }
+        return count;
+    }
+    
+    private _markDepthForContext(ctx: any): void {
+        // Mark current depth for all tokens in this context
+        if (ctx.start && ctx.stop) {
+            for (let i = ctx.start.tokenIndex; i <= ctx.stop.tokenIndex; i++) {
+                if (!this.tokenDepthMap.has(i)) {
+                    this.tokenDepthMap.set(i, this.subqueryDepth);
+                }
+            }
         }
     }
 }
@@ -285,10 +464,26 @@ export function formatSql(sql: string): string {
         const tokenList = tokens.tokens;        // Uppercase parse (correct types)
         const output: string[] = [];
         let prevWasFunctionName = false;
+        let insideFunctionArgs = 0; // Track parentheses depth in function calls
         let isFirstNonWsToken = true;
         let insideHint = false;
         let hintContent: string[] = [];
         let lastProcessedIndex = -1;
+        let baseIndent = 0; // Base indentation level
+        
+        // Track if we just output a SELECT/GROUP BY/ORDER BY keyword
+        // to know when to add comma-first formatting for the list
+        let afterSelectKeyword = false;
+        let afterGroupByKeyword = false;
+        let afterOrderByKeyword = false;
+        let afterWhereKeyword = false;
+        let afterHavingKeyword = false;
+        
+        // Track first item in current list context
+        let isFirstListItem = true;
+        
+        // Track if we just output a comma on its own line (comma-first style)
+        let justOutputCommaFirstStyle = false;
         
         for (let i = 0; i < tokenList.length && i < allOrigTokens.length; i++) {
             const token = tokenList[i];
@@ -303,11 +498,11 @@ export function formatSql(sql: string): string {
                 if (hiddenToken.channel === 1) { // HIDDEN channel
                     if (hiddenToken.type === SqlBaseLexer.SIMPLE_COMMENT || 
                         hiddenToken.type === SqlBaseLexer.BRACKETED_COMMENT) {
-                        // Add newline before comment if not at start and not already on new line
+                        // Add space before comment if not at start and not already on new line
                         if (output.length > 0) {
                             const lastStr = output[output.length - 1];
                             if (lastStr.charAt(lastStr.length - 1) !== '\n') {
-                                output.push('\n');
+                                output.push(' ');
                             }
                         }
                         output.push(hiddenToken.text);
@@ -327,6 +522,7 @@ export function formatSql(sql: string): string {
             const text = origToken.text;
             const tokenType = token.type;
             const tokenIndex = token.tokenIndex;
+            const symbolicName = SqlBaseLexer.symbolicNames[tokenType];
             
             // Handle hints: /*+ ... */
             if (tokenType === SqlBaseLexer.HENT_START) {
@@ -355,10 +551,7 @@ export function formatSql(sql: string): string {
                     prevWasFunctionName = false;
                     continue;
                 } else {
-                    // Collect hint content with spacing rules:
-                    // - Space before token (unless after '(' or previous was space)
-                    // - No space before ')' or ','
-                    // - Space after ','
+                    // Collect hint content - no spaces after commas in hints
                     if (hintContent.length > 0) {
                         const lastElement = hintContent[hintContent.length - 1];
                         const needsSpace = lastElement !== '(' && lastElement !== ' ' && 
@@ -368,9 +561,7 @@ export function formatSql(sql: string): string {
                         }
                     }
                     hintContent.push(text);
-                    if (text === ',') {
-                        hintContent.push(' ');
-                    }
+                    // No space after comma in hints
                     continue;
                 }
             }
@@ -378,6 +569,8 @@ export function formatSql(sql: string): string {
             const isInIdentifierContext = analyzer.identifierTokens.has(tokenIndex);
             const isFunctionCall = analyzer.functionCallTokens.has(tokenIndex);
             const isClauseStart = analyzer.clauseStartTokens.has(tokenIndex);
+            const isListComma = analyzer.listItemCommas.has(tokenIndex);
+            const isConditionOperator = analyzer.conditionOperators.has(tokenIndex);
             
             // Determine output text based on context
             let outputText: string;
@@ -396,32 +589,137 @@ export function formatSql(sql: string): string {
                 outputText = text;
             }
             
-            // Newlines before clause starters (skip first token)
-            const needsNewline = !isFirstNonWsToken && 
-                                 isClauseStart && 
-                                 !isInIdentifierContext;
+            // Track function argument depth
+            if (text === '(' && prevWasFunctionName) {
+                insideFunctionArgs++;
+            } else if (text === ')' && insideFunctionArgs > 0) {
+                insideFunctionArgs--;
+            }
             
-            // Spacing
+            // Determine spacing and newlines
+            let needsNewline = false;
+            let indent = '';
+            
+            // Check if this is a SELECT/GROUP BY/ORDER BY keyword
+            if (symbolicName === 'SELECT' && isClauseStart) {
+                afterSelectKeyword = true;
+                isFirstListItem = true;
+            } else if (symbolicName === 'GROUP' && isClauseStart) {
+                afterGroupByKeyword = true;
+                isFirstListItem = true;
+            } else if (symbolicName === 'ORDER' && isClauseStart) {
+                afterOrderByKeyword = true;
+                isFirstListItem = true;
+            } else if (symbolicName === 'WHERE' && isClauseStart) {
+                const isMultiline = analyzer.multilineConditionClauses.has(tokenIndex);
+                if (isMultiline) {
+                    afterWhereKeyword = true;
+                    // Don't override - WHERE itself gets newline from isClauseStart below
+                }
+            } else if (symbolicName === 'HAVING' && isClauseStart) {
+                const isMultiline = analyzer.multilineConditionClauses.has(tokenIndex);
+                if (isMultiline) {
+                    afterHavingKeyword = true;
+                    // Don't override - HAVING itself gets newline from isClauseStart below
+                }
+            } else if (symbolicName === 'ON') {
+                // ON in JOIN clause - if multiline, add newline before ON
+                const isMultiline = analyzer.multilineConditionClauses.has(tokenIndex);
+                if (isMultiline && !isFirstNonWsToken) {
+                    needsNewline = true;
+                    indent = '    '; // 4-space indent for ON
+                }
+            }
+            
+            // Clause start gets newline (unless it's the first token)
+            if (!isFirstNonWsToken && isClauseStart && !isInIdentifierContext) {
+                needsNewline = true;
+            }
+            
+            // List comma handling (SELECT columns, GROUP BY, ORDER BY)
+            if (isListComma && insideFunctionArgs === 0) {
+                // Comma in list context - newline before comma
+                needsNewline = true;
+                // The comma will be output with leading indent on its own line
+                indent = '    '; // 4-space indent for comma
+                isFirstListItem = false;
+                justOutputCommaFirstStyle = true; // Flag to skip space after comma
+            }
+            
+            // Condition operator handling (AND/OR in WHERE/HAVING)
+            if (isConditionOperator) {
+                needsNewline = true;
+                indent = '    '; // 4-space indent for AND/OR
+            }
+            
+            // First list item after SELECT/GROUP BY/ORDER BY
+            if (!isListComma && (afterSelectKeyword || afterGroupByKeyword || afterOrderByKeyword) &&
+                symbolicName !== 'SELECT' && symbolicName !== 'GROUP' && symbolicName !== 'ORDER') {
+                // Skip the BY token after GROUP/ORDER
+                if ((afterGroupByKeyword && symbolicName === 'BY') || 
+                    (afterOrderByKeyword && symbolicName === 'BY') ||
+                    symbolicName === 'DISTINCT') {
+                    // Don't treat BY or DISTINCT as first list item
+                } else if (isFirstListItem) {
+                    needsNewline = true;
+                    indent = '     '; // 5-space indent for first item
+                    isFirstListItem = false;
+                }
+            }
+            
+            // First condition after WHERE/HAVING
+            if (!isConditionOperator && (afterWhereKeyword || afterHavingKeyword) && 
+                symbolicName !== 'WHERE' && symbolicName !== 'HAVING') {
+                needsNewline = true;
+                indent = '    '; // 4-space indent for first condition
+                afterWhereKeyword = false;
+                afterHavingKeyword = false;
+            }
+            
+            // Apply spacing/newlines
             if (needsNewline) {
-                // Only add newline if not already at start of line
+                // Add newline if not already at start of line
                 if (output.length > 0) {
                     const lastStr = output[output.length - 1];
                     if (lastStr.charAt(lastStr.length - 1) !== '\n') {
                         output.push('\n');
                     }
-                } else {
-                    output.push('\n');
+                }
+                if (indent) {
+                    output.push(indent);
                 }
             } else if (output.length > 0) {
                 const lastStr = output[output.length - 1];
                 const lastChar = lastStr.charAt(lastStr.length - 1);
+                // Skip space in certain cases
                 const skipSpace = lastChar === '(' || lastChar === '.' || lastChar === '\n' ||
-                    text === ')' || text === ',' || text === '.' ||
-                    (text === '(' && prevWasFunctionName);
+                    text === ')' || text === '.' ||
+                    (text === '(' && prevWasFunctionName) ||
+                    (text === ',' && insideFunctionArgs > 0) || // No space before comma in functions
+                    (lastChar === ',' && insideFunctionArgs > 0) || // No space after comma in functions
+                    justOutputCommaFirstStyle || // No space after comma in comma-first style
+                    afterWhereKeyword || afterHavingKeyword; // No space before first condition in multiline WHERE/HAVING
                 if (!skipSpace) output.push(' ');
             }
             
             output.push(outputText);
+            
+            // Reset comma-first flag after outputting the next token
+            if (justOutputCommaFirstStyle && text !== ',') {
+                justOutputCommaFirstStyle = false;
+            }
+            
+            // Reset flags after processing
+            if (symbolicName !== 'SELECT' && symbolicName !== 'DISTINCT' && afterSelectKeyword && !isListComma) {
+                afterSelectKeyword = false;
+            }
+            if (symbolicName !== 'GROUP' && symbolicName !== 'BY' && afterGroupByKeyword && !isListComma) {
+                afterGroupByKeyword = false;
+            }
+            if (symbolicName !== 'ORDER' && symbolicName !== 'BY' && afterOrderByKeyword && !isListComma) {
+                afterOrderByKeyword = false;
+            }
+            
             prevWasFunctionName = isFunctionCall;
             isFirstNonWsToken = false;
         }
