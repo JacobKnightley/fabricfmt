@@ -6,7 +6,6 @@ pub mod keywords;
 pub mod functions;
 pub mod hints;
 pub mod generated;
-pub mod antlr_generated;
 
 pub use error::FormatError;
 
