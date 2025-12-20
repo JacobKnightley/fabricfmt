@@ -191,7 +191,38 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     visitJoinRelation(ctx: any): any {
         // JOIN clauses
         this._markClauseStart(ctx);
+        // Check if JOIN has multiple conditions (AND/OR)
+        this._analyzeJoinConditions(ctx);
         return this.visitChildren(ctx);
+    }
+    
+    private _analyzeJoinConditions(ctx: any): void {
+        // Count AND/OR operators in JOIN ON condition
+        const operators = this._countConditionOperators(ctx);
+        if (operators > 0) {
+            // Multiple conditions - find the ON token (recursively in children)
+            const onTokenIndex = this._findOnToken(ctx);
+            if (onTokenIndex !== -1) {
+                this.multilineConditionClauses.add(onTokenIndex);
+            }
+        }
+    }
+    
+    private _findOnToken(ctx: any): number {
+        if (!ctx) return -1;
+        if (ctx.symbol) {
+            const symName = SqlBaseLexer.symbolicNames[ctx.symbol.type];
+            if (symName === 'ON') {
+                return ctx.symbol.tokenIndex;
+            }
+        }
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                const result = this._findOnToken(child);
+                if (result !== -1) return result;
+            }
+        }
+        return -1;
     }
     
     visitWindowDef(ctx: any): any {
@@ -590,6 +621,13 @@ export function formatSql(sql: string): string {
                 if (isMultiline) {
                     afterHavingKeyword = true;
                     // Don't override - HAVING itself gets newline from isClauseStart below
+                }
+            } else if (symbolicName === 'ON') {
+                // ON in JOIN clause - if multiline, add newline before ON
+                const isMultiline = analyzer.multilineConditionClauses.has(tokenIndex);
+                if (isMultiline && !isFirstNonWsToken) {
+                    needsNewline = true;
+                    indent = '    '; // 4-space indent for ON
                 }
             }
             
