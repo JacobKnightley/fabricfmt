@@ -71,7 +71,8 @@ fn format_select_query(query: &SelectQuery, output: &mut String, indent: usize) 
         format_comment(comment, output, indent);
     }
     
-    // SELECT keyword
+    // SELECT keyword with indentation
+    output.push_str(&" ".repeat(indent));
     if query.distinct {
         output.push_str("SELECT DISTINCT");
     } else {
@@ -123,6 +124,12 @@ fn format_select_query(query: &SelectQuery, output: &mut String, indent: usize) 
         output.push('\n');
         format_limit_clause(limit, output, indent);
     }
+    
+    // Emit fallback comments (unconsumed comments from this query)
+    for comment in &query.fallback_comments {
+        output.push('\n');
+        format_comment(comment, output, indent);
+    }
 }
 
 fn format_comment(comment: &Comment, output: &mut String, indent: usize) {
@@ -159,14 +166,14 @@ fn format_with_clause(with_clause: &WithClause, output: &mut String, indent: usi
     output.push('\n');
 }
 
-fn format_select_list(items: &[SelectItem], output: &mut String, _indent: usize) {
+fn format_select_list(items: &[SelectItem], output: &mut String, indent: usize) {
     for (i, item) in items.iter().enumerate() {
         if i == 0 {
-            // First item: indent with FIRST_ITEM_INDENT spaces
-            output.push_str(&" ".repeat(FIRST_ITEM_INDENT));
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
         } else {
-            // Subsequent items: comma-first with BASE_INDENT
-            output.push_str(&" ".repeat(BASE_INDENT));
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
             output.push(',');
         }
         
@@ -446,6 +453,7 @@ fn format_expression(expr: &Expression, output: &mut String) {
 }
 
 fn format_from_clause(from: &FromClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
     output.push_str("FROM ");
     format_table_ref(&from.table, output, indent);
     
@@ -463,7 +471,6 @@ fn format_table_ref(table_ref: &TableRef, output: &mut String, indent: usize) {
         TableSource::Subquery(stmt) => {
             output.push_str("(\n");
             let nested_indent = indent + BASE_INDENT;
-            output.push_str(&" ".repeat(nested_indent));
             format_statement(stmt, output, nested_indent);
             output.push('\n');
             output.push_str(&" ".repeat(indent));
@@ -614,21 +621,39 @@ fn format_join(join: &Join, output: &mut String, _indent: usize) {
             }
             
             format_expression(&condition.expr, output);
+            
+            // Format trailing inline comment
+            if let Some(ref comment) = condition.trailing_comment {
+                if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                    output.push(' ');
+                    output.push_str(&comment.text);
+                }
+            }
         }
     }
 }
 
-fn format_where_clause(where_clause: &WhereClause, output: &mut String, _indent: usize) {
+fn format_where_clause(where_clause: &WhereClause, output: &mut String, indent: usize) {
     // If there's only one condition (no AND/OR), keep inline
     if where_clause.conditions.len() == 1 {
+        output.push_str(&" ".repeat(indent));
         output.push_str("WHERE ");
         format_expression(&where_clause.conditions[0].expr, output);
+        
+        // Format trailing inline comment
+        if let Some(ref comment) = where_clause.conditions[0].trailing_comment {
+            if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                output.push(' ');
+                output.push_str(&comment.text);
+            }
+        }
     } else {
         // Multiple conditions: each on its own line
+        output.push_str(&" ".repeat(indent));
         output.push_str("WHERE");
         for (i, condition) in where_clause.conditions.iter().enumerate() {
             output.push('\n');
-            output.push_str(&" ".repeat(BASE_INDENT));
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
             
             if i > 0 {
                 // Operator-leading for AND/OR
@@ -641,21 +666,39 @@ fn format_where_clause(where_clause: &WhereClause, output: &mut String, _indent:
             }
             
             format_expression(&condition.expr, output);
+            
+            // Format trailing inline comment
+            if let Some(ref comment) = condition.trailing_comment {
+                if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                    output.push(' ');
+                    output.push_str(&comment.text);
+                }
+            }
         }
     }
 }
 
-fn format_having_clause(having: &HavingClause, output: &mut String, _indent: usize) {
+fn format_having_clause(having: &HavingClause, output: &mut String, indent: usize) {
     // If there's only one condition (no AND/OR), keep inline
     if having.conditions.len() == 1 {
+        output.push_str(&" ".repeat(indent));
         output.push_str("HAVING ");
         format_expression(&having.conditions[0].expr, output);
+        
+        // Format trailing inline comment
+        if let Some(ref comment) = having.conditions[0].trailing_comment {
+            if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                output.push(' ');
+                output.push_str(&comment.text);
+            }
+        }
     } else {
         // Multiple conditions: each on its own line
+        output.push_str(&" ".repeat(indent));
         output.push_str("HAVING");
         for (i, condition) in having.conditions.iter().enumerate() {
             output.push('\n');
-            output.push_str(&" ".repeat(BASE_INDENT));
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
             
             if i > 0 {
                 // Operator-leading for AND/OR
@@ -668,22 +711,31 @@ fn format_having_clause(having: &HavingClause, output: &mut String, _indent: usi
             }
             
             format_expression(&condition.expr, output);
+            
+            // Format trailing inline comment
+            if let Some(ref comment) = condition.trailing_comment {
+                if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                    output.push(' ');
+                    output.push_str(&comment.text);
+                }
+            }
         }
     }
 }
 
-fn format_group_by_clause(group_by: &GroupByClause, output: &mut String, _indent: usize) {
+fn format_group_by_clause(group_by: &GroupByClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
     output.push_str("GROUP BY");
     
     for (i, item) in group_by.items.iter().enumerate() {
         output.push('\n');
         
         if i == 0 {
-            // First item: indent with FIRST_ITEM_INDENT spaces
-            output.push_str(&" ".repeat(FIRST_ITEM_INDENT));
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
         } else {
-            // Subsequent items: comma-first with BASE_INDENT
-            output.push_str(&" ".repeat(BASE_INDENT));
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
             output.push(',');
         }
         
@@ -691,18 +743,19 @@ fn format_group_by_clause(group_by: &GroupByClause, output: &mut String, _indent
     }
 }
 
-fn format_order_by_clause(order_by: &OrderByClause, output: &mut String, _indent: usize) {
+fn format_order_by_clause(order_by: &OrderByClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
     output.push_str("ORDER BY");
     
     for (i, item) in order_by.items.iter().enumerate() {
         output.push('\n');
         
         if i == 0 {
-            // First item: indent with FIRST_ITEM_INDENT spaces
-            output.push_str(&" ".repeat(FIRST_ITEM_INDENT));
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
         } else {
-            // Subsequent items: comma-first with BASE_INDENT
-            output.push_str(&" ".repeat(BASE_INDENT));
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
             output.push(',');
         }
         
@@ -718,7 +771,8 @@ fn format_order_by_clause(order_by: &OrderByClause, output: &mut String, _indent
     }
 }
 
-fn format_limit_clause(limit: &LimitClause, output: &mut String, _indent: usize) {
+fn format_limit_clause(limit: &LimitClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
     output.push_str("LIMIT ");
     output.push_str(&limit.count);
 }
