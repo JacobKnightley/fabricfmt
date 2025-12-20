@@ -126,6 +126,12 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     setClauseCommas: Set<number> = new Set();
     setKeywordToken: number = -1;
     
+    // Track CASE expressions with multiple WHEN branches (need multiline)
+    multiWhenCaseTokens: Set<number> = new Set(); // CASE tokens that have multiple WHEN
+    caseWhenTokens: Set<number> = new Set(); // WHEN tokens inside multiline CASE
+    caseElseTokens: Set<number> = new Set(); // ELSE tokens inside multiline CASE
+    caseEndTokens: Set<number> = new Set(); // END tokens inside multiline CASE
+    
     // Track current SELECT token for associating with list items
     private currentSelectToken: number = -1;
 
@@ -209,6 +215,99 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             }
         }
         return this.visitChildren(ctx);
+    }
+    
+    // ========== CASE EXPRESSION CONTEXTS ==========
+    // Handle CASE expressions with multiple WHEN branches
+    
+    visitSearchedCase(ctx: any): any {
+        // CASE whenClause+ (ELSE elseExpression)? END
+        this._analyzeCaseExpression(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    visitSimpleCase(ctx: any): any {
+        // CASE value=expression whenClause+ (ELSE elseExpression)? END
+        this._analyzeCaseExpression(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    private _analyzeCaseExpression(ctx: any): void {
+        if (!ctx.children) return;
+        
+        // Count WHEN clauses
+        let whenCount = 0;
+        let caseToken: any = null;
+        let elseToken: any = null;
+        let endToken: any = null;
+        const whenTokens: any[] = [];
+        
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'CASE') {
+                    caseToken = child.symbol;
+                } else if (symName === 'ELSE') {
+                    elseToken = child.symbol;
+                } else if (symName === 'END') {
+                    endToken = child.symbol;
+                } else if (symName === 'WHEN') {
+                    whenCount++;
+                    whenTokens.push(child.symbol);
+                }
+            }
+            // Also count whenClause rule contexts
+            if (child.ruleIndex !== undefined) {
+                const ruleName = SqlBaseParser.ruleNames[child.ruleIndex];
+                if (ruleName === 'whenClause') {
+                    // Find WHEN token in whenClause
+                    const whenToken = this._findTokenInContext(child, 'WHEN');
+                    if (whenToken && !whenTokens.find(t => t.tokenIndex === whenToken.tokenIndex)) {
+                        whenCount++;
+                        whenTokens.push(whenToken);
+                    }
+                }
+            }
+        }
+        
+        // If multiple WHEN branches, mark for multiline formatting
+        if (whenCount > 1 && caseToken) {
+            this.multiWhenCaseTokens.add(caseToken.tokenIndex);
+            // Mark each WHEN token
+            for (const whenToken of whenTokens) {
+                this.caseWhenTokens.add(whenToken.tokenIndex);
+            }
+            // Mark ELSE token if present
+            if (elseToken) {
+                this.caseElseTokens.add(elseToken.tokenIndex);
+            }
+            // Mark END token
+            if (endToken) {
+                this.caseEndTokens.add(endToken.tokenIndex);
+            }
+            
+            // Also mark the parent SELECT as multiline if we're inside one
+            if (this.currentSelectToken >= 0) {
+                this.multiItemClauses.add(this.currentSelectToken);
+            }
+        }
+    }
+    
+    private _findTokenInContext(ctx: any, symbolicName: string): any {
+        if (!ctx) return null;
+        if (ctx.symbol) {
+            const symName = SqlBaseLexer.symbolicNames[ctx.symbol.type];
+            if (symName === symbolicName) {
+                return ctx.symbol;
+            }
+        }
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                const found = this._findTokenInContext(child, symbolicName);
+                if (found) return found;
+            }
+        }
+        return null;
     }
     
     // ========== CLAUSE-STARTING CONTEXTS ==========
@@ -884,6 +983,9 @@ export function formatSql(sql: string): string {
         let prevTokenText = ''; // Track previous meaningful token for unary detection
         let prevTokenType = -1;
         
+        // Track CASE expression depth for indentation
+        let caseDepth = 0;
+        
         for (let i = 0; i < tokenList.length && i < allOrigTokens.length; i++) {
             const token = tokenList[i];
             const origToken = allOrigTokens[i];
@@ -982,6 +1084,12 @@ export function formatSql(sql: string): string {
             const isValuesComma = analyzer.valuesCommas.has(tokenIndex);
             const isSetComma = analyzer.setClauseCommas.has(tokenIndex);
             const isSetKeyword = tokenIndex === analyzer.setKeywordToken;
+            
+            // Track CASE expression tokens
+            const isMultiWhenCase = analyzer.multiWhenCaseTokens.has(tokenIndex);
+            const isCaseWhen = analyzer.caseWhenTokens.has(tokenIndex);
+            const isCaseElse = analyzer.caseElseTokens.has(tokenIndex);
+            const isCaseEnd = analyzer.caseEndTokens.has(tokenIndex);
             
             // Detect if current token is a unary +/- operator
             // Unary if it comes after: (, [, comma, or operators/keywords that start expressions
@@ -1128,6 +1236,24 @@ export function formatSql(sql: string): string {
             } else if (symbolicName === 'VALUES') {
                 afterValuesKeyword = true;
                 isFirstListItem = true;
+            }
+            
+            // Handle multi-WHEN CASE expressions
+            if (isCaseWhen) {
+                // WHEN in multi-WHEN CASE - newline with indent
+                needsNewline = true;
+                // WHEN should be indented 3 spaces relative to CASE
+                // CASE is at base indent + 5 (first item in SELECT)
+                // WHEN should be at base indent + 8 (CASE indent + 3)
+                indent = getBaseIndent(subqueryDepth + ddlDepth) + '        '; // 8-space indent (5 for first item + 3 for WHEN)
+            } else if (isCaseElse) {
+                // ELSE in multi-WHEN CASE - same indent as WHEN
+                needsNewline = true;
+                indent = getBaseIndent(subqueryDepth + ddlDepth) + '        '; // 8-space indent
+            } else if (isCaseEnd) {
+                // END in multi-WHEN CASE - same indent as CASE (5 spaces)
+                needsNewline = true;
+                indent = getBaseIndent(subqueryDepth + ddlDepth) + '     '; // 5-space indent (matches CASE)
             }
             
             // Clause start gets newline (unless it's the first token)
@@ -1283,6 +1409,12 @@ export function formatSql(sql: string): string {
             
             output.push(outputText);
             
+            // Handle multi-WHEN CASE: add newline after CASE keyword
+            if (isMultiWhenCase) {
+                output.push('\n');
+                caseDepth++; // Increase depth for WHEN/ELSE/END
+            }
+            
             // Track subquery depth changes AFTER outputting the token
             if (isSubqueryOpenParen) {
                 subqueryDepth++;
@@ -1302,6 +1434,11 @@ export function formatSql(sql: string): string {
             // Reset comma-first flag after outputting the next token
             if (justOutputCommaFirstStyle && text !== ',') {
                 justOutputCommaFirstStyle = false;
+            }
+            
+            // Decrease CASE depth after END token
+            if (isCaseEnd && caseDepth > 0) {
+                caseDepth--;
             }
             
             // Reset flags after processing

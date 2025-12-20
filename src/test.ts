@@ -562,6 +562,23 @@ const testCases: TestCase[] = [
         input: 'select arr[i + 1] from t',
         expected: 'SELECT arr[i + 1]\nFROM t',
     },
+    
+    // CASE expressions - single WHEN inline, multiple WHEN multiline
+    {
+        name: 'CASE with single WHEN (inline)',
+        input: 'select case when x = 1 then "a" else "b" end from t',
+        expected: 'SELECT CASE WHEN x = 1 THEN "A" ELSE "B" END\nFROM t',
+    },
+    {
+        name: 'CASE with multiple WHEN (multiline)',
+        input: 'select case when status = 1 then "active" when status = 2 then "pending" when status = 3 then "closed" else "unknown" end from t',
+        expected: 'SELECT\n     CASE\n        WHEN status = 1 THEN "ACTIVE"\n        WHEN status = 2 THEN "PENDING"\n        WHEN status = 3 THEN "CLOSED"\n        ELSE "UNKNOWN"\n     END\nFROM t',
+    },
+    {
+        name: 'CASE without ELSE',
+        input: 'select case when x = 1 then "a" when x = 2 then "b" end from t',
+        expected: 'SELECT\n     CASE\n        WHEN x = 1 THEN "A"\n        WHEN x = 2 THEN "B"\n     END\nFROM t',
+    },
 ];
 
 function runTests(): void {
