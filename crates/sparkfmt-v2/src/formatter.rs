@@ -26,12 +26,12 @@ fn should_newline(word: &str) -> bool {
 
 /// Format SQL string
 pub fn format_sql(input: &str) -> Result<String, FormatError> {
-    // Uppercase entire input for ANTLR parsing (grammar expects uppercase keywords)
-    // This validates structure without needing to pre-identify keywords
-    let uppercased = input.to_uppercase();
-    let _parse_result = antlr_parser::parse(&uppercased)?;
+    // TODO: ANTLR validation disabled due to stack overflow in antlr4rust
+    // Once fixed, uncomment:
+    // let uppercased = input.to_uppercase();
+    // let _parse_result = antlr_parser::parse(&uppercased)?;
     
-    // Now format the original input, preserving identifier casing
+    // Format the input: keywords uppercased, identifiers preserved
     format_text(input)
 }
 
