@@ -2,6 +2,7 @@
 members = [
     "crates/sparkfmt-core",
     "crates/sparkfmt-wasm",
+    "crates/sparkfmt-v2",
 ]
 resolver = "2"
 

@@ -332,6 +332,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sparkfmt-v2"
+version = "0.1.0"
+dependencies = [
+ "antlr4rust",
+ "sparkfmt-core",
+]
+
+[[package]]
 name = "sparkfmt-wasm"
 version = "0.1.0"
 dependencies = [
