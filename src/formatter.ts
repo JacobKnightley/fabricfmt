@@ -78,6 +78,10 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     subqueryDepth: number = 0;
     tokenDepthMap: Map<number, number> = new Map();
     
+    // Track positions where AS keyword should be inserted (for aliases without AS)
+    // Maps the token index AFTER the expression to the alias token index
+    aliasInsertPositions: Map<number, number> = new Map();
+    
     visit(ctx: any): any {
         if (!ctx) return null;
         return this.visitChildren(ctx);
@@ -258,6 +262,33 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     visitSelectClause(ctx: any): any {
         // SELECT keyword - new line for nested/union SELECTs
         this._markClauseStart(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    visitNamedExpression(ctx: any): any {
+        // Check if this namedExpression has an alias without AS keyword
+        // Grammar: namedExpression: expression (AS? errorCapturingIdentifier)?
+        // We need to check:
+        // 1. Does it have errorCapturingIdentifier? (alias exists)
+        // 2. Does it NOT have AS token?
+        // If both true, mark the position for AS insertion
+        
+        const hasAlias = ctx.errorCapturingIdentifier && ctx.errorCapturingIdentifier();
+        const hasAS = ctx.AS && ctx.AS();
+        
+        if (hasAlias && !hasAS) {
+            // Need to insert AS keyword
+            // Get the token index right after the expression (before the alias)
+            const expr = ctx.expression && ctx.expression();
+            const alias = ctx.errorCapturingIdentifier();
+            
+            if (expr && expr.stop && alias && alias.start) {
+                // Insert AS after expression, before alias
+                const aliasIndex = alias.start.tokenIndex;
+                this.aliasInsertPositions.set(aliasIndex, alias.start.tokenIndex);
+            }
+        }
+        
         return this.visitChildren(ctx);
     }
     
@@ -610,6 +641,21 @@ export function formatSql(sql: string): string {
                 insideFunctionArgs++;
             } else if (text === ')' && insideFunctionArgs > 0) {
                 insideFunctionArgs--;
+            }
+            
+            // Check if we need to insert AS keyword before this token (for aliases)
+            if (analyzer.aliasInsertPositions.has(tokenIndex)) {
+                // This token is an alias that needs AS inserted before it
+                // Add space before AS if not at start
+                if (output.length > 0) {
+                    const lastStr = output[output.length - 1];
+                    const lastChar = lastStr.charAt(lastStr.length - 1);
+                    if (lastChar !== ' ' && lastChar !== '\n') {
+                        output.push(' ');
+                    }
+                }
+                output.push('AS');
+                // Will add space before alias token below in normal spacing logic
             }
             
             // Determine spacing and newlines

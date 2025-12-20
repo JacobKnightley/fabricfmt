@@ -157,6 +157,35 @@ const testCases: TestCase[] = [
         input: 'select /*+ broadcast(MyTable) */ * from MyTable',
         expected: 'SELECT /*+ BROADCAST(MyTable) */\n     *\nFROM MyTable',
     },
+    
+    // UDF casing preservation
+    {
+        name: 'UDF preserves casing',
+        input: 'select MyCustomFunc(x), my_udf(a,b) from t',
+        expected: 'SELECT\n     MyCustomFunc(x)\n    ,MY_UDF(a,b)\nFROM t',
+    },
+    {
+        name: 'Mixed built-in and UDF',
+        input: 'select count(*), MyFunc(x), sum(y) from t',
+        expected: 'SELECT\n     COUNT(*)\n    ,MyFunc(x)\n    ,SUM(y)\nFROM t',
+    },
+    
+    // Alias with AS keyword insertion
+    {
+        name: 'Column alias gets AS keyword',
+        input: 'select count(*) cnt from t',
+        expected: 'SELECT\n     COUNT(*) AS cnt\nFROM t',
+    },
+    {
+        name: 'Existing AS preserved',
+        input: 'select count(*) as cnt from t',
+        expected: 'SELECT\n     COUNT(*) AS cnt\nFROM t',
+    },
+    {
+        name: 'Multiple aliases',
+        input: 'select a x, b y, count(*) cnt from t',
+        expected: 'SELECT\n     a AS x\n    ,b AS y\n    ,COUNT(*) AS cnt\nFROM t',
+    },
 ];
 
 function runTests(): void {
