@@ -1222,6 +1222,7 @@ export function formatSql(sql: string): string {
         interface PendingComment {
             text: string;
             type: number;
+            wasOnOwnLine: boolean; // True if comment was at start of line (column 0) or preceded by newline
         }
         let pendingComments: PendingComment[] = [];
         
@@ -1233,9 +1234,14 @@ export function formatSql(sql: string): string {
                 if (addSpaceBefore && output.length > 0) {
                     const lastStr = output[output.length - 1];
                     const lastChar = lastStr.charAt(lastStr.length - 1);
-                    // Don't add space after newline, space, or open paren
-                    if (lastChar !== '\n' && lastChar !== ' ' && lastChar !== '(') {
-                        output.push(' ');
+                    // Don't add space after newline or space
+                    // For line comments, add space even after open paren to preserve "( -- comment"
+                    const isLineComment = comment.type === SqlBaseLexer.SIMPLE_COMMENT;
+                    if (lastChar !== '\n' && lastChar !== ' ') {
+                        // Add space after open paren only for line comments (not block comments)
+                        if (lastChar !== '(' || isLineComment) {
+                            output.push(' ');
+                        }
                     }
                 }
                 output.push(comment.text);
@@ -1251,6 +1257,31 @@ export function formatSql(sql: string): string {
             return { outputAny: true, lastWasMultilineBlock };
         };
         
+        // Helper to check if a comment was on its own line in the input
+        const checkCommentWasOnOwnLine = (commentTokenIndex: number, commentToken: any): boolean => {
+            // If comment is at column 0, it was definitely on its own line
+            if (commentToken.column === 0) {
+                return true;
+            }
+            
+            // Look back through preceding hidden-channel tokens until a non-hidden token is found
+            // If any whitespace token in this range contains a newline, the comment is on its own line
+            for (let k = commentTokenIndex - 1; k >= 0; k--) {
+                const prevToken = allOrigTokens[k];
+                if (!prevToken) {
+                    continue;
+                }
+                // Stop once we reach a non-hidden token; earlier tokens are from a previous line/segment
+                if (prevToken.channel !== 1) {
+                    break;
+                }
+                if (prevToken.type === SqlBaseLexer.WS && prevToken.text && prevToken.text.includes('\n')) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        
         // Helper to collect comments from a range of hidden tokens
         const collectCommentsFromRange = (startIdx: number, endIdx: number): void => {
             for (let j = startIdx; j < endIdx; j++) {
@@ -1258,9 +1289,12 @@ export function formatSql(sql: string): string {
                 if (hiddenToken && hiddenToken.channel === 1) {
                     if (hiddenToken.type === SqlBaseLexer.SIMPLE_COMMENT || 
                         hiddenToken.type === SqlBaseLexer.BRACKETED_COMMENT) {
+                        const wasOnOwnLine = checkCommentWasOnOwnLine(j, hiddenToken);
+                        
                         pendingComments.push({
                             text: hiddenToken.text,
-                            type: hiddenToken.type
+                            type: hiddenToken.type,
+                            wasOnOwnLine: wasOnOwnLine
                         });
                     }
                 }
@@ -1306,9 +1340,12 @@ export function formatSql(sql: string): string {
                 token.type === SqlBaseLexer.BRACKETED_COMMENT) {
                 if (!wasAlreadyProcessed) {
                     // This comment wasn't collected by look-ahead, add it now
+                    const wasOnOwnLine = checkCommentWasOnOwnLine(i, origToken);
+                    
                     pendingComments.push({
                         text: origToken.text,
-                        type: token.type
+                        type: token.type,
+                        wasOnOwnLine: wasOnOwnLine
                     });
                 }
                 continue;
@@ -1727,9 +1764,13 @@ export function formatSql(sql: string): string {
             
             // Apply spacing/newlines
             if (needsNewline) {
-                // ALWAYS output pending comments BEFORE the newline
-                // This keeps comments attached to the preceding content
-                if (pendingComments.length > 0) {
+                // Separate pending comments into inline (attach to previous) and own-line (indent with next token)
+                const inlineComments = pendingComments.filter(c => !c.wasOnOwnLine);
+                const ownLineComments = pendingComments.filter(c => c.wasOnOwnLine);
+                
+                // Output inline comments BEFORE the newline (attached to preceding content)
+                if (inlineComments.length > 0) {
+                    pendingComments = inlineComments;
                     outputPendingComments();
                 }
                 
@@ -1740,9 +1781,28 @@ export function formatSql(sql: string): string {
                         output.push('\n');
                     }
                 }
+                
+                // Output own-line comments AFTER the newline but WITH the indent
+                if (ownLineComments.length > 0) {
+                    for (const comment of ownLineComments) {
+                        if (indent) output.push(indent);
+                        output.push(comment.text);
+                        // Line comments (SIMPLE_COMMENT) already include the trailing newline
+                        // Block comments on their own line don't
+                        if (comment.type === SqlBaseLexer.BRACKETED_COMMENT && !comment.text.endsWith('\n')) {
+                            output.push('\n');
+                        }
+                    }
+                    // After own-line comments, still need to add indent for the actual token
+                }
+                
+                // Add indent for the next token
                 if (indent) {
                     output.push(indent);
                 }
+                
+                // Clear all pending comments (already output above by outputPendingComments() for inline comments)
+                pendingComments = [];
             } else {
                 // No newline needed
                 // First, output any pending comments
