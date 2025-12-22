@@ -21,6 +21,7 @@ import { sparkFeaturesTests, windowFunctionTests, lambdaTests, pivotFormattingTe
 import { utilityTests } from './utility.test.js';
 import { magicCommandsTests } from './magic-commands.test.js';
 import { semicolonTests } from './semicolon.test.js';
+import { noqaStatementTests, noqaExpansionTests } from './noqa.test.js';
 
 // All test suites in order
 const allSuites = [
@@ -53,6 +54,8 @@ const allSuites = [
     utilityTests,
     magicCommandsTests,
     semicolonTests,
+    noqaStatementTests,
+    noqaExpansionTests,
 ];
 
 function main(): void {

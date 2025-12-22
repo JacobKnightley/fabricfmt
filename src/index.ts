@@ -25,3 +25,6 @@ export type {
     ExpandedFunction,
     ExpandedWindow
 } from './types.js';
+
+// Noqa utilities (for library consumers who want to detect noqa directives)
+export { hasStatementNoqa, detectNoqaExpansion, isExpansionSuppressed, type NoqaInfo } from './noqa-detector.js';

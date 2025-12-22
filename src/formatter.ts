@@ -45,6 +45,7 @@ import {
 } from './output-builder.js';
 import { SPARK_BUILTIN_FUNCTIONS } from './generated/builtinFunctions.js';
 import { MAX_LINE_WIDTH } from './constants.js';
+import { hasStatementNoqa, detectNoqaExpansion, type NoqaInfo } from './noqa-detector.js';
 import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, PendingComment } from './types.js';
 
 // ============================================================================
@@ -73,6 +74,13 @@ export function formatSql(sql: string): string {
         
         for (const stmt of statements) {
             if (stmt.trim().length === 0) continue;
+            
+            // Check for statement-level noqa (bypass formatting entirely)
+            if (hasStatementNoqa(stmt.trim())) {
+                formattedStatements.push(stmt.trim());
+                continue;
+            }
+            
             const formatted = formatSingleStatement(stmt.trim());
             formattedStatements.push(formatted);
         }
@@ -192,8 +200,11 @@ function formatSingleStatement(sql: string): string {
         const origTokens = new antlr4.CommonTokenStream(origLexer);
         origTokens.fill();
         
+        // Detect noqa:expansion directives
+        const noqaInfo = detectNoqaExpansion(sql);
+        
         // Format tokens
-        return formatTokens(tokens.tokens, origTokens.tokens, analysis);
+        return formatTokens(tokens.tokens, origTokens.tokens, analysis, noqaInfo);
     } catch (e: any) {
         console.error('Formatter error:', e.message, e.stack);
         return sql;
@@ -206,7 +217,8 @@ function formatSingleStatement(sql: string): string {
 function formatTokens(
     tokenList: any[], 
     allOrigTokens: any[], 
-    analysis: AnalyzerResult
+    analysis: AnalyzerResult,
+    noqaInfo: NoqaInfo
 ): string {
     const builder = new OutputBuilder();
     const state = createInitialState();
@@ -404,12 +416,16 @@ function formatTokens(
         }
         
         // Handle multi-arg function expansion
-        if (multiArgFuncInfo && shouldExpandFunction(builder.getColumn(), multiArgFuncInfo)) {
+        // Check if this token's line has noqa:expansion to suppress expansion
+        const tokenLine = allOrigTokens[i]?.line || 0;
+        const expansionSuppressed = noqaInfo.expansionSuppressedLines.has(tokenLine);
+        
+        if (multiArgFuncInfo && !expansionSuppressed && shouldExpandFunction(builder.getColumn(), multiArgFuncInfo)) {
             handleFunctionExpansion(builder, expandedFuncs, multiArgFuncInfo, tokenList, i, findNextNonWsTokenIndex, analysis, state);
         }
         
         // Handle window expansion
-        if (windowDefInfo && shouldExpandWindow(builder.getColumn(), windowDefInfo)) {
+        if (windowDefInfo && !expansionSuppressed && shouldExpandWindow(builder.getColumn(), windowDefInfo)) {
             currentExpandedWindow = {
                 closeParenIndex: windowDefInfo.closeParenIndex,
                 orderByTokenIndex: windowDefInfo.orderByTokenIndex,
