@@ -39,6 +39,37 @@ export const sparkFeaturesTests: TestSuite = {
     ],
 };
 
+export const windowFunctionTests: TestSuite = {
+    name: 'Window Function Formatting',
+    tests: [
+        {
+            name: 'Short window spec stays inline',
+            input: 'select row_number() over (partition by a order by b) from t',
+            expected: 'SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b)\nFROM t',
+        },
+        {
+            name: 'Window stays inline when line under 140 chars',
+            input: 'select row_number() over (partition by very_long_column_name_one, very_long_column_name_two order by another_long_name) from t',
+            expected: 'SELECT ROW_NUMBER() OVER (PARTITION BY very_long_column_name_one, very_long_column_name_two ORDER BY another_long_name)\nFROM t',
+        },
+        {
+            name: 'Window expands when full line exceeds 140 chars',
+            input: 'select row_number() over (partition by extremely_long_column_name_one, extremely_long_column_name_two, extremely_long_column_name_three order by yet_another_extremely_long_sort_column_name) from t',
+            expected: 'SELECT ROW_NUMBER() OVER (\n        PARTITION BY extremely_long_column_name_one, extremely_long_column_name_two, extremely_long_column_name_three\n        ORDER BY yet_another_extremely_long_sort_column_name\n    )\nFROM t',
+        },
+        {
+            name: 'Window with frame clause stays inline under 140',
+            input: 'select sum(amount) over (partition by customer_id order by transaction_date rows between unbounded preceding and current row) from t',
+            expected: 'SELECT SUM(amount) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)\nFROM t',
+        },
+        {
+            name: 'Window in CTE stays inline when under 140',
+            input: 'with cte as (select lead(x) over (partition by very_long_name_a, very_long_name_b, very_long_name_c order by sort_col) from t) select * from cte',
+            expected: 'WITH cte AS (\n    SELECT LEAD(x) OVER (PARTITION BY very_long_name_a, very_long_name_b, very_long_name_c ORDER BY sort_col)\n    FROM t\n)\nSELECT *\nFROM cte',
+        },
+    ],
+};
+
 export const lambdaTests: TestSuite = {
     name: 'Lambda Expressions',
     tests: [

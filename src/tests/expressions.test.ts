@@ -100,6 +100,42 @@ export const unaryOperatorTests: TestSuite = {
     ],
 };
 
+export const nestedFunctionTests: TestSuite = {
+    name: 'Nested Function Formatting',
+    tests: [
+        {
+            name: 'Single-arg nested functions stay inline',
+            input: 'select upper(lower(trim(name))) from t',
+            expected: 'SELECT UPPER(LOWER(TRIM(name)))\nFROM t',
+        },
+        {
+            name: 'Multi-arg function without nested calls stays inline',
+            input: 'select coalesce(a, b, c) from t',
+            expected: 'SELECT COALESCE(a, b, c)\nFROM t',
+        },
+        {
+            name: 'Short multi-arg with nested calls stays inline (under 140 chars)',
+            input: 'select coalesce(upper(a), lower(b)) from t',
+            expected: 'SELECT COALESCE(UPPER(a), LOWER(b))\nFROM t',
+        },
+        {
+            name: 'Long multi-arg function expands when line exceeds 140 chars',
+            input: 'select coalesce(upper(very_long_column_name_one), lower(very_long_column_name_two), trim(another_very_long_column_name_three), concat(col_four, col_five)) from t',
+            expected: 'SELECT COALESCE(\n         UPPER(very_long_column_name_one)\n        ,LOWER(very_long_column_name_two)\n        ,TRIM(another_very_long_column_name_three)\n        ,CONCAT(col_four, col_five)\n    )\nFROM t',
+        },
+        {
+            name: 'Deeply nested functions expand based on line position',
+            input: 'select conv(right(md5(upper(concat(coalesce(VeryLongTable.VeryLongColumnName, AnotherLongAlias.AnotherLongColumn), SomeOtherReallyLongColumnName))), 16), 16, -10) from t',
+            expected: 'SELECT CONV(\n         RIGHT(\n             MD5(UPPER(CONCAT(\n                 COALESCE(VeryLongTable.VeryLongColumnName, AnotherLongAlias.AnotherLongColumn)\n                ,SomeOtherReallyLongColumnName\n            )))\n            ,16\n        )\n        ,16\n        ,-10\n    )\nFROM t',
+        },
+        {
+            name: 'Short NVL2 stays inline (under 140 chars)',
+            input: 'select nvl2(flag, upper(yes_val), lower(no_val)) from t',
+            expected: 'SELECT NVL2(flag, UPPER(yes_val), LOWER(no_val))\nFROM t',
+        },
+    ],
+};
+
 export const arrayAccessTests: TestSuite = {
     name: 'Array/Map Access',
     tests: [

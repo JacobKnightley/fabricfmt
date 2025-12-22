@@ -20,6 +20,8 @@ import SqlBaseParser from './generated/SqlBaseParser.js';
 import SqlBaseParserVisitor from './generated/SqlBaseParserVisitor.js';
 // Auto-generated from Spark source - the authoritative list of built-in functions
 import { SPARK_BUILTIN_FUNCTIONS } from './generated/builtinFunctions.js';
+// Formatting constants
+import { MAX_LINE_WIDTH } from './constants.js';
 
 /**
  * Build a map from symbolic name to token type (derived from grammar at runtime)
@@ -154,6 +156,25 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // Track GROUP BY ALL - the ALL token should be uppercased (grammar-driven detection)
     groupByAllTokens: Set<number> = new Set();
     
+    // ========== MULTI-ARG FUNCTION FORMATTING (Line-Width Triggered) ==========
+    // Track function calls with 2+ args - expansion triggered by line width
+    // Map from opening paren token index to function info
+    multiArgFunctionInfo: Map<number, {
+        closeParenIndex: number;
+        commaIndices: number[];
+        spanLength: number;  // Character length of the entire function call
+    }> = new Map();
+    
+    // ========== WINDOW DEFINITION FORMATTING (Line-Width Triggered) ==========
+    // Track OVER (...) window definitions - expansion triggered by line width
+    // Map from opening paren token index to window info
+    windowDefInfo: Map<number, {
+        closeParenIndex: number;
+        orderByTokenIndex: number | null;  // ORDER BY keyword inside window
+        windowFrameTokenIndex: number | null;  // ROWS/RANGE keyword for window frame
+        spanLength: number;  // Character length of entire OVER(...) clause
+    }> = new Map();
+    
     // Track current SELECT token for associating with list items
     private currentSelectToken: number = -1;
 
@@ -206,14 +227,146 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // ========== FUNCTION CALL CONTEXTS ==========
     // Grammar rules that identify function calls
     
+    /**
+     * Calculate the character span length of a parse tree context.
+     * This is used to estimate how wide the expression would be if kept inline.
+     */
+    private _calculateSpanLength(ctx: any): number {
+        if (!ctx || !ctx.start || !ctx.stop) return 0;
+        
+        // Get start and stop positions from the tokens
+        const startIdx = ctx.start.start;  // Character position
+        const stopIdx = ctx.stop.stop;     // Character position (inclusive)
+        
+        if (startIdx === undefined || stopIdx === undefined) return 0;
+        
+        return stopIdx - startIdx + 1;
+    }
+    
     visitFunctionCall(ctx: any): any {
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        
+        // Check for multi-arg functions - we'll decide on expansion during formatting based on line width
+        // Grammar: functionName LEFT_PAREN (setQuantifier? argument+=functionArgument (COMMA argument+=functionArgument)*)? RIGHT_PAREN ...
+        const args = ctx.argument; // Array of functionArgument contexts
+        if (args && args.length >= 2) {
+            // Has 2+ arguments - collect info for potential expansion
+            this._collectMultiArgFunctionInfo(ctx, args.length);
+        }
+        
+        return this.visitChildren(ctx);
+    }
+    
+    /**
+     * Collect info about a multi-arg function for line-width based expansion decision.
+     */
+    private _collectMultiArgFunctionInfo(ctx: any, argCount: number): void {
+        if (!ctx.children) return;
+        
+        // Find LEFT_PAREN, RIGHT_PAREN, and COMMA tokens
+        let leftParenTokenIndex: number | null = null;
+        let rightParenTokenIndex: number | null = null;
+        const commaTokenIndices: number[] = [];
+        
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'LEFT_PAREN' && leftParenTokenIndex === null) {
+                    leftParenTokenIndex = child.symbol.tokenIndex;
+                } else if (symName === 'RIGHT_PAREN') {
+                    // Take the first RIGHT_PAREN (after all args, not OVER/FILTER clauses)
+                    rightParenTokenIndex = child.symbol.tokenIndex;
+                    break;
+                } else if (symName === 'COMMA') {
+                    commaTokenIndices.push(child.symbol.tokenIndex);
+                }
+            }
+        }
+        
+        // Only store if we found the parentheses and have the expected number of commas
+        if (leftParenTokenIndex !== null && rightParenTokenIndex !== null && 
+            commaTokenIndices.length === argCount - 1) {
+            
+            // Calculate span length for this function call
+            const spanLength = this._calculateSpanLength(ctx);
+            
+            this.multiArgFunctionInfo.set(leftParenTokenIndex, {
+                closeParenIndex: rightParenTokenIndex,
+                commaIndices: commaTokenIndices,
+                spanLength: spanLength
+            });
+        }
+    }
+    
+    visitFunctionName(ctx: any): any {
         if (ctx.start) {
             this.functionCallTokens.add(ctx.start.tokenIndex);
         }
         return this.visitChildren(ctx);
     }
     
-    visitFunctionName(ctx: any): any {
+    // Special function-like constructs that are not regular functionCall in grammar
+    // These have dedicated rules like: FIRST LEFT_PAREN expression RIGHT_PAREN #first
+    visitFirst(ctx: any): any {
+        // FIRST(expr) - mark FIRST keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitLast(ctx: any): any {
+        // LAST(expr) - mark LAST keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitAny_value(ctx: any): any {
+        // ANY_VALUE(expr) - mark ANY_VALUE keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitStruct(ctx: any): any {
+        // STRUCT(args) - mark STRUCT keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitExtract(ctx: any): any {
+        // EXTRACT(field FROM expr) - mark EXTRACT keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitPosition(ctx: any): any {
+        // POSITION(substr IN str) - mark POSITION keyword as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitTimestampadd(ctx: any): any {
+        // TIMESTAMPADD/DATEADD/DATE_ADD - mark as function call
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        return this.visitChildren(ctx);
+    }
+    
+    visitTimestampdiff(ctx: any): any {
+        // TIMESTAMPDIFF/DATEDIFF/DATE_DIFF/TIMEDIFF - mark as function call
         if (ctx.start) {
             this.functionCallTokens.add(ctx.start.tokenIndex);
         }
@@ -511,9 +664,55 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     visitWindowDef(ctx: any): any {
         // Window definition - OVER (PARTITION BY ... ORDER BY ...)
-        // Do NOT mark ORDER BY as clause start here - it should stay inline
-        // Just visit children without marking anything
+        // Collect info for potential line-width based expansion
+        this._collectWindowDefInfo(ctx);
         return this.visitChildren(ctx);
+    }
+    
+    /**
+     * Collect info about a window definition for line-width based expansion.
+     * Grammar: windowDef: LEFT_PAREN
+     *   ( CLUSTER BY ... | ((PARTITION | DISTRIBUTE) BY ...)? ((ORDER | SORT) BY ...)? )
+     *   windowFrame?
+     *   RIGHT_PAREN
+     */
+    private _collectWindowDefInfo(ctx: any): void {
+        if (!ctx.children) return;
+        
+        let leftParenTokenIndex: number | null = null;
+        let rightParenTokenIndex: number | null = null;
+        let orderByTokenIndex: number | null = null;
+        let windowFrameTokenIndex: number | null = null;
+        
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'LEFT_PAREN' && leftParenTokenIndex === null) {
+                    leftParenTokenIndex = child.symbol.tokenIndex;
+                } else if (symName === 'RIGHT_PAREN') {
+                    rightParenTokenIndex = child.symbol.tokenIndex;
+                } else if (symName === 'ORDER' || symName === 'SORT') {
+                    // ORDER BY or SORT BY inside window
+                    orderByTokenIndex = child.symbol.tokenIndex;
+                }
+            } else if (child.ruleIndex !== undefined) {
+                // Check for windowFrame rule context - ROWS/RANGE is the first child symbol
+                const ruleName = SqlBaseParser.ruleNames[child.ruleIndex];
+                if (ruleName === 'windowFrame' && child.children?.[0]?.symbol) {
+                    windowFrameTokenIndex = child.children[0].symbol.tokenIndex;
+                }
+            }
+        }
+        
+        if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
+            const spanLength = this._calculateSpanLength(ctx);
+            this.windowDefInfo.set(leftParenTokenIndex, {
+                closeParenIndex: rightParenTokenIndex,
+                orderByTokenIndex: orderByTokenIndex,
+                windowFrameTokenIndex: windowFrameTokenIndex,
+                spanLength: spanLength
+            });
+        }
     }
     
     visitSetOperation(ctx: any): any {
@@ -810,7 +1009,10 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // ========== CTE (WITH clause) ==========
     
     visitCtes(ctx: any): any {
-        // WITH clause - mark commas between CTEs for comma-first formatting
+        // WITH clause - mark as clause start (newline before WITH)
+        this._markClauseStart(ctx);
+        
+        // Mark commas between CTEs for comma-first formatting
         if (ctx.children) {
             for (const child of ctx.children) {
                 if (child.symbol && child.symbol.type === getTokenType('COMMA')) {
@@ -1409,6 +1611,57 @@ function formatSingleStatement(sql: string): string {
         // Track CASE expression depth for indentation
         let caseDepth = 0;
         
+        // Track multi-arg function expansion (line-width triggered)
+        // Stack of currently expanded multi-arg functions
+        interface ExpandedFunction {
+            closeParenIndex: number;
+            commaIndices: Set<number>;
+            depth: number;  // Nesting depth of this expanded function (0 = outermost)
+        }
+        const expandedFunctionStack: ExpandedFunction[] = [];
+        let justOutputMultiArgFunctionNewline = false; // Track if we just output newline+indent for multi-arg function
+        
+        // Track window definition expansion (line-width triggered)
+        interface ExpandedWindow {
+            closeParenIndex: number;
+            orderByTokenIndex: number | null;
+            windowFrameTokenIndex: number | null;
+            baseDepth: number;  // subqueryDepth at time of expansion
+        }
+        let currentExpandedWindow: ExpandedWindow | null = null;
+        let justOutputWindowNewline = false;
+        
+        // Helper to calculate indent for expanded functions
+        // Content base = 8 + (depth * 4): accounts for SELECT context (4) + function content (4) + nesting
+        // Close paren = 4 + (depth * 4): one level less than content (aligns with containing comma)
+        const getExpandedFunctionContentIndent = (depth: number): number => 8 + (depth * 4);
+        const getExpandedFunctionCloseIndent = (depth: number): number => 4 + (depth * 4);
+        
+        // Helper to calculate indent for expanded windows
+        // Window content = (baseDepth * 4) + 8: base indent + SELECT (4) + window content (4)
+        // Window close = (baseDepth * 4) + 4: base indent + SELECT (4)
+        const getWindowContentIndent = (baseDepth: number): number => (baseDepth * 4) + 8;
+        const getWindowCloseIndent = (baseDepth: number): number => (baseDepth * 4) + 4;
+        
+        // Track current column position for line-width decisions
+        let currentColumn = 0;
+        
+        // Helper to update column tracking
+        const updateColumn = (text: string) => {
+            const lastNewline = text.lastIndexOf('\n');
+            if (lastNewline >= 0) {
+                currentColumn = text.length - lastNewline - 1;
+            } else {
+                currentColumn += text.length;
+            }
+        };
+        
+        // Helper to push to output and update column tracking
+        const pushOutput = (text: string) => {
+            output.push(text);
+            updateColumn(text);
+        };
+        
         // Collect pending comments to be output at the right time
         interface PendingComment {
             text: string;
@@ -1431,16 +1684,16 @@ function formatSingleStatement(sql: string): string {
                     if (lastChar !== '\n' && lastChar !== ' ') {
                         // Add space after open paren only for line comments (not block comments)
                         if (lastChar !== '(' || isLineComment) {
-                            output.push(' ');
+                            pushOutput(' ');
                         }
                     }
                 }
-                output.push(comment.text);
+                pushOutput(comment.text);
                 // Track if this is a multi-line block comment
                 lastWasMultilineBlock = comment.type === SqlBaseLexer.BRACKETED_COMMENT && comment.text.includes('\n');
                 // If it's a multi-line block comment, add a newline after it
                 if (lastWasMultilineBlock) {
-                    output.push('\n');
+                    pushOutput('\n');
                 }
                 addSpaceBefore = true; // After first comment, always add space
             }
@@ -1554,12 +1807,12 @@ function formatSingleStatement(sql: string): string {
                     const lastStr = output[output.length - 1];
                     const lastChar = lastStr.charAt(lastStr.length - 1);
                     if (lastChar !== ' ' && lastChar !== '\n') {
-                        output.push(' ');
+                        pushOutput(' ');
                     }
                 }
                 insideHint = true;
                 hintContent = [];
-                output.push('/*+');
+                pushOutput('/*+');
                 continue;
             }
             
@@ -1567,8 +1820,8 @@ function formatSingleStatement(sql: string): string {
                 if (tokenType === SqlBaseLexer.HENT_END) {
                     // Format and output hint content
                     const formatted = formatHintContent(hintContent.join(''));
-                    output.push(' ' + formatted + ' ');
-                    output.push('*/');
+                    pushOutput(' ' + formatted + ' ');
+                    pushOutput('*/');
                     insideHint = false;
                     hintContent = [];
                     prevWasFunctionName = false;
@@ -1608,6 +1861,24 @@ function formatSingleStatement(sql: string): string {
             const isSetComma = analyzer.setClauseCommas.has(tokenIndex);
             const isSetKeyword = tokenIndex === analyzer.setKeywordToken;
             const isLateralViewComma = analyzer.lateralViewCommas.has(tokenIndex);
+            
+            // Check if this is a multi-arg function paren/comma that might need expansion
+            const multiArgFuncInfo = analyzer.multiArgFunctionInfo.get(tokenIndex);
+            
+            // Check if this is a window definition paren that might need expansion
+            const windowDefInfoForToken = analyzer.windowDefInfo.get(tokenIndex);
+            
+            // Check if we're inside an expanded window
+            const isExpandedWindowOrderBy = currentExpandedWindow?.orderByTokenIndex === tokenIndex;
+            const isExpandedWindowFrame = currentExpandedWindow?.windowFrameTokenIndex === tokenIndex;
+            const isExpandedWindowCloseParen = currentExpandedWindow?.closeParenIndex === tokenIndex;
+            
+            // Check if we're inside an expanded function
+            const currentExpandedFunc = expandedFunctionStack.length > 0 
+                ? expandedFunctionStack[expandedFunctionStack.length - 1] 
+                : null;
+            const isExpandedFunctionComma = currentExpandedFunc?.commaIndices.has(tokenIndex) ?? false;
+            const isExpandedFunctionCloseParen = currentExpandedFunc?.closeParenIndex === tokenIndex;
             
             // Track CASE expression tokens
             const isMultiWhenCase = analyzer.multiWhenCaseTokens.has(tokenIndex);
@@ -1719,10 +1990,10 @@ function formatSingleStatement(sql: string): string {
                     const lastStr = output[output.length - 1];
                     const lastChar = lastStr.charAt(lastStr.length - 1);
                     if (lastChar !== ' ' && lastChar !== '\n') {
-                        output.push(' ');
+                        pushOutput(' ');
                     }
                 }
-                output.push('AS');
+                pushOutput('AS');
                 // Will add space before alias token below in normal spacing logic
             }
             
@@ -1828,6 +2099,34 @@ function formatSingleStatement(sql: string): string {
                 indent = '    '.repeat(subqueryDepth + ddlDepth - 1); // Use parent depth for closing paren
             }
             
+            // Expanded multi-arg function close paren handling
+            // Put closing paren on its own line at function's indent level
+            if (isExpandedFunctionCloseParen && currentExpandedFunc) {
+                needsNewline = true;
+                // Closing paren at parent level (aligns with containing comma)
+                const closeIndent = getExpandedFunctionCloseIndent(currentExpandedFunc.depth);
+                indent = ' '.repeat(closeIndent);
+            }
+            
+            // Expanded window definition handling
+            // ORDER BY inside expanded window - newline before
+            if (isExpandedWindowOrderBy && currentExpandedWindow) {
+                needsNewline = true;
+                indent = ' '.repeat(getWindowContentIndent(currentExpandedWindow.baseDepth));
+            }
+            
+            // Window frame (ROWS/RANGE) inside expanded window - newline before
+            if (isExpandedWindowFrame && currentExpandedWindow) {
+                needsNewline = true;
+                indent = ' '.repeat(getWindowContentIndent(currentExpandedWindow.baseDepth));
+            }
+            
+            // Expanded window close paren handling
+            if (isExpandedWindowCloseParen && currentExpandedWindow) {
+                needsNewline = true;
+                indent = ' '.repeat(getWindowCloseIndent(currentExpandedWindow.baseDepth));
+            }
+            
             // List comma handling (SELECT columns, GROUP BY, ORDER BY)
             if (isListComma && insideFunctionArgs === 0) {
                 // Comma in list context - newline before comma
@@ -1894,6 +2193,23 @@ function formatSingleStatement(sql: string): string {
             if (isSetComma) {
                 needsNewline = true;
                 indent = getBaseIndent(subqueryDepth + ddlDepth) + '    '; // 4-space indent for comma
+                justOutputCommaFirstStyle = true;
+                
+                // Look ahead for comments
+                const nextIdx = findNextNonWsTokenIndex(i + 1);
+                if (nextIdx > 0) {
+                    collectCommentsFromRange(i + 1, nextIdx);
+                    lastProcessedIndex = nextIdx - 1;
+                }
+            }
+            
+            // Expanded multi-arg function comma handling
+            // Put each argument on its own line when function has been expanded
+            if (isExpandedFunctionComma && currentExpandedFunc) {
+                needsNewline = true;
+                // Comma at content indent (comma-first style)
+                const contentIndent = getExpandedFunctionContentIndent(currentExpandedFunc.depth);
+                indent = ' '.repeat(contentIndent);
                 justOutputCommaFirstStyle = true;
                 
                 // Look ahead for comments
@@ -1973,19 +2289,19 @@ function formatSingleStatement(sql: string): string {
                 if (output.length > 0) {
                     const lastStr = output[output.length - 1];
                     if (lastStr.charAt(lastStr.length - 1) !== '\n') {
-                        output.push('\n');
+                        pushOutput('\n');
                     }
                 }
                 
                 // Output own-line comments AFTER the newline but WITH the indent
                 if (ownLineComments.length > 0) {
                     for (const comment of ownLineComments) {
-                        if (indent) output.push(indent);
-                        output.push(comment.text);
+                        if (indent) pushOutput(indent);
+                        pushOutput(comment.text);
                         // Line comments (SIMPLE_COMMENT) already include the trailing newline
                         // Block comments on their own line don't
                         if (comment.type === SqlBaseLexer.BRACKETED_COMMENT && !comment.text.endsWith('\n')) {
-                            output.push('\n');
+                            pushOutput('\n');
                         }
                     }
                     // After own-line comments, still need to add indent for the actual token
@@ -1993,7 +2309,7 @@ function formatSingleStatement(sql: string): string {
                 
                 // Add indent for the next token
                 if (indent) {
-                    output.push(indent);
+                    pushOutput(indent);
                 }
                 
                 // Clear all pending comments (already output above by outputPendingComments() for inline comments)
@@ -2028,6 +2344,8 @@ function formatSingleStatement(sql: string): string {
                         (text === ',' && insideParens > 0) || // No space before comma inside parens
                         isLateralViewComma || // No space before comma in LATERAL VIEW column list
                         justOutputCommaFirstStyle || // No space after comma in comma-first style
+                        justOutputMultiArgFunctionNewline || // No space after multi-arg function newline+indent
+                        justOutputWindowNewline || // No space after window newline+indent
                         afterWhereKeyword || afterHavingKeyword || // No space before first condition in multiline WHERE/HAVING
                         prevIsUnaryOperator || // No space after unary - or +
                         lastChar === '[' || text === '[' || text === ']'; // No space around [ and ]
@@ -2035,15 +2353,15 @@ function formatSingleStatement(sql: string): string {
                     // Add comma-space: space after comma inside parens (unless comma-first)
                     const needsCommaSpace = lastChar === ',' && insideParens > 0 && !justOutputCommaFirstStyle;
                     
-                    if (!skipSpace || needsCommaSpace) output.push(' ');
+                    if (!skipSpace || needsCommaSpace) pushOutput(' ');
                 }
             }
             
-            output.push(outputText);
+            pushOutput(outputText);
             
             // Handle multi-WHEN CASE: add newline after CASE keyword
             if (isMultiWhenCase) {
-                output.push('\n');
+                pushOutput('\n');
                 caseDepth++; // Increase depth for WHEN/ELSE/END
             }
             
@@ -2057,10 +2375,80 @@ function formatSingleStatement(sql: string): string {
             // Track DDL depth changes AFTER outputting the token
             // Also add newline after multi-column DDL open paren
             if (isDdlOpenParen && isDdlMultiColumn) {
-                output.push('\n' + '    '.repeat(subqueryDepth + 1)); // Newline + 4 spaces base, space before token added normally
+                pushOutput('\n' + '    '.repeat(subqueryDepth + 1)); // Newline + 4 spaces base, space before token added normally
                 ddlDepth++;
             } else if (isDdlCloseParen && ddlDepth > 0) {
                 ddlDepth--;
+            }
+            
+            // Track multi-arg function expansion AFTER outputting the token
+            // Use full line width check: if currentColumn + span > MAX_LINE_WIDTH, expand
+            if (multiArgFuncInfo) {
+                // This is a multi-arg function opening paren - decide if we need to expand
+                const spanLength = multiArgFuncInfo.spanLength;
+                // Expand if the full line (current position + remaining expression) would exceed max width
+                const wouldExceedWidth = currentColumn + spanLength > MAX_LINE_WIDTH;
+                
+                if (wouldExceedWidth) {
+                    // Need to expand - push to stack and add newline
+                    const depth = expandedFunctionStack.length;
+                    expandedFunctionStack.push({
+                        closeParenIndex: multiArgFuncInfo.closeParenIndex,
+                        commaIndices: new Set(multiArgFuncInfo.commaIndices),
+                        depth: depth
+                    });
+                    
+                    // Add newline after the opening paren with proper indentation
+                    // First arg at content indent + 1 (comma-first style: first item gets +1)
+                    const contentIndent = getExpandedFunctionContentIndent(depth);
+                    const newIndent = '\n' + ' '.repeat(contentIndent + 1);
+                    pushOutput(newIndent);
+                    justOutputMultiArgFunctionNewline = true; // Skip extra space before next token
+                }
+            }
+            
+            // Track window definition expansion AFTER outputting the token
+            // Use full line width check for windows too
+            if (windowDefInfoForToken) {
+                const spanLength = windowDefInfoForToken.spanLength;
+                // Expand if the full line would exceed max width
+                // Windows use a lower threshold since they're embedded in larger expressions
+                const wouldExceedWidth = currentColumn + spanLength > MAX_LINE_WIDTH;
+                
+                if (wouldExceedWidth) {
+                    // Need to expand window definition
+                    currentExpandedWindow = {
+                        closeParenIndex: windowDefInfoForToken.closeParenIndex,
+                        orderByTokenIndex: windowDefInfoForToken.orderByTokenIndex,
+                        windowFrameTokenIndex: windowDefInfoForToken.windowFrameTokenIndex,
+                        baseDepth: subqueryDepth  // Capture current depth for indentation
+                    };
+                    
+                    // Add newline after opening paren with proper indentation
+                    const newIndent = '\n' + ' '.repeat(getWindowContentIndent(subqueryDepth));
+                    pushOutput(newIndent);
+                    justOutputWindowNewline = true;
+                }
+            }
+            
+            // Pop from expanded function stack when we hit the closing paren
+            if (isExpandedFunctionCloseParen && expandedFunctionStack.length > 0) {
+                expandedFunctionStack.pop();
+            }
+            
+            // Clear expanded window when we hit its closing paren
+            if (isExpandedWindowCloseParen && currentExpandedWindow) {
+                currentExpandedWindow = null;
+            }
+            
+            // Reset multi-arg function newline flag after the next non-paren, non-comma token
+            if (justOutputMultiArgFunctionNewline && text !== ',' && text !== '(') {
+                justOutputMultiArgFunctionNewline = false;
+            }
+            
+            // Reset window newline flag
+            if (justOutputWindowNewline && text !== '(' && text !== ',') {
+                justOutputWindowNewline = false;
             }
             
             // Reset comma-first flag after outputting the next token

@@ -13,11 +13,11 @@ import { joinTests } from './joins.test.js';
 import { groupByTests } from './grouping.test.js';
 import { whereTests } from './where.test.js';
 import { subqueryTests, cteTests, setOperationTests, subqueryIndentationTests } from './subqueries.test.js';
-import { caseExpressionTests, castTests, literalTests, unaryOperatorTests, arrayAccessTests } from './expressions.test.js';
+import { caseExpressionTests, castTests, literalTests, unaryOperatorTests, arrayAccessTests, nestedFunctionTests } from './expressions.test.js';
 import { commentTests, hintTests } from './comments.test.js';
 import { ddlTests } from './ddl.test.js';
 import { dmlTests } from './dml.test.js';
-import { sparkFeaturesTests, lambdaTests, pivotFormattingTests, unpivotFormattingTests, lateralViewFormattingTests } from './spark-features.test.js';
+import { sparkFeaturesTests, windowFunctionTests, lambdaTests, pivotFormattingTests, unpivotFormattingTests, lateralViewFormattingTests } from './spark-features.test.js';
 import { utilityTests } from './utility.test.js';
 import { magicCommandsTests } from './magic-commands.test.js';
 import { semicolonTests } from './semicolon.test.js';
@@ -39,11 +39,13 @@ const allSuites = [
     literalTests,
     unaryOperatorTests,
     arrayAccessTests,
+    nestedFunctionTests,
     commentTests,
     hintTests,
     ddlTests,
     dmlTests,
     sparkFeaturesTests,
+    windowFunctionTests,
     lambdaTests,
     pivotFormattingTests,
     unpivotFormattingTests,

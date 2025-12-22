@@ -168,6 +168,46 @@ SELECT
 FROM orders
 ```
 
+### Nested Functions (Line-Width Triggered Expansion)
+
+Multi-argument functions expand to multiple lines when the line would exceed 140 characters.
+The formatter checks at each nesting level: if the function call would make the line too long,
+it expands with comma-first formatting. Inner functions only expand if they too would exceed
+the threshold at their indent level.
+
+```sql
+-- Short function calls stay inline (under 140 chars)
+SELECT COALESCE(UPPER(a), LOWER(b))
+FROM t
+
+-- Long function calls expand when exceeding 140 chars
+SELECT COALESCE(
+     UPPER(very_long_column_name_one)
+    ,LOWER(very_long_column_name_two)
+    ,TRIM(another_very_long_column_name)
+)
+FROM t
+
+-- Deeply nested functions expand level by level based on width
+SELECT CONV(
+     RIGHT(
+         MD5(UPPER(CONCAT(short_col_a, short_col_b)))
+        ,16
+    )
+    ,16
+    ,-10
+)
+FROM t
+```
+
+Single-arg function chains stay inline regardless of nesting depth:
+
+```sql
+-- Single-arg chains stay compact
+SELECT UPPER(LOWER(TRIM(name)))
+FROM users
+```
+
 Window functions stay inline:
 
 ```sql
