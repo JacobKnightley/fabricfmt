@@ -222,8 +222,9 @@ function restoreVariables(sql: string, substitutions: VariableSubstitution[]): s
  */
 function normalizeForTokenization(sql: string): string {
     // Normalize scientific notation: replace lowercase 'e' in numbers with uppercase 'E'
-    // Pattern: digit(s), optional decimal point and digit(s), 'e', optional +/-, digit(s)
-    return sql.replace(/(\d+\.?\d*)e([+-]?\d+)/gi, (match, mantissa, exponent) => {
+    // Pattern matches: integer part (optional decimal), 'e', optional +/-, exponent
+    // Examples: 1e10, 1.23e10, .5e-3, 1.e+5
+    return sql.replace(/(\d+(?:\.\d*)?|\.\d+)e([+-]?\d+)/gi, (match, mantissa, exponent) => {
         return mantissa + 'E' + exponent;
     });
 }

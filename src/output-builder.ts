@@ -163,8 +163,9 @@ export function shouldSkipSpace(
 ): boolean {
     const lastChar = builder.getLastChar();
     
-    // Check for hex/binary literals: X'...' or B'...'
-    const prevWasHexBinaryPrefix = (context.prevTokenText === 'X' || context.prevTokenText === 'B') && 
+    // Check for hex/binary literals: X'...' or B'...' (case-insensitive)
+    const prevWasHexBinaryPrefix = (context.prevTokenText.toUpperCase() === 'X' || 
+                                     context.prevTokenText.toUpperCase() === 'B') && 
                                     context.currentTokenIsStringLiteral;
     
     return (
