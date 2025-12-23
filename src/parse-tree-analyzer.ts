@@ -710,6 +710,13 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    visitResetConfiguration(ctx: any): any {
+        // GRAMMAR-DRIVEN: RESET .*?
+        // Mark all tokens after RESET as configuration tokens to preserve casing
+        this._markResetConfigTokens(ctx);
+        return this.visitChildren(ctx);
+    }
+    
     // ========== MERGE STATEMENT ==========
     
     visitMergeIntoTable(ctx: any): any {
@@ -1674,6 +1681,24 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                     this.setConfigTokens.add(child.symbol.tokenIndex);
                 }
             } else if (child.children && foundSet) {
+                this._markSetConfigTokensRecursive(child);
+            }
+        }
+    }
+    
+    private _markResetConfigTokens(ctx: any): void {
+        // Similar to SET, mark all tokens after RESET keyword
+        if (!ctx || !ctx.children) return;
+        let foundReset = false;
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'RESET') {
+                    foundReset = true;
+                } else if (foundReset) {
+                    this.setConfigTokens.add(child.symbol.tokenIndex);
+                }
+            } else if (child.children && foundReset) {
                 this._markSetConfigTokensRecursive(child);
             }
         }

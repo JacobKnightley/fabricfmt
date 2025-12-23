@@ -119,14 +119,18 @@ export function isWhitespaceToken(tokenType: number): boolean {
  * Keywords that are used like functions: KEYWORD(args)
  * These need special handling for spacing (no space before opening paren).
  * 
- * Note: This is a style choice, not grammar-derived.
- * IN is in built-in functions but IN (list) is a predicate with space before (.
+ * Note: This is a style choice for layout, not grammar-derived.
+ * These keywords take arguments in parentheses like functions do.
  */
 const FUNCTION_LIKE_KEYWORDS = new Set([
     'cast', 'try_cast', 'extract', 'position', 'substring', 'trim',
     'overlay', 'percentile_cont', 'percentile_disc', 'any_value',
     'first_value', 'last_value', 'nth_value', 'lead', 'lag',
-    'decimal', 'array', 'map', 'struct'
+    'decimal', 'array', 'map', 'struct',
+    // Type constructors
+    'varchar', 'char',
+    // Constraints
+    'unique', 'primary', 'foreign', 'check'
 ]);
 
 /**
