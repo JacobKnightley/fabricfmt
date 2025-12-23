@@ -125,7 +125,8 @@ export function isWhitespaceToken(tokenType: number): boolean {
 const FUNCTION_LIKE_KEYWORDS = new Set([
     'cast', 'try_cast', 'extract', 'position', 'substring', 'trim',
     'overlay', 'percentile_cont', 'percentile_disc', 'any_value',
-    'first_value', 'last_value', 'nth_value', 'lead', 'lag'
+    'first_value', 'last_value', 'nth_value', 'lead', 'lag',
+    'decimal', 'array', 'map', 'struct'
 ]);
 
 /**

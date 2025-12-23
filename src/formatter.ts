@@ -531,7 +531,7 @@ function formatTokens(
         if (needsNewline) {
             outputWithNewline(builder, comments, indent, state);
         } else {
-            outputWithoutNewline(builder, comments, text, state, currentTokenIsUnaryOperator, ctx.isLateralViewComma);
+            outputWithoutNewline(builder, comments, text, symbolicName, state, currentTokenIsUnaryOperator, ctx.isLateralViewComma);
         }
         
         builder.push(outputText);
@@ -1128,6 +1128,7 @@ function outputWithoutNewline(
     builder: OutputBuilder,
     comments: CommentManager,
     text: string,
+    symbolicName: string | null,
     state: ReturnType<typeof createInitialState>,
     currentTokenIsUnaryOperator: boolean,
     isLateralViewComma: boolean = false
@@ -1155,6 +1156,8 @@ function outputWithoutNewline(
                 (state.prevTokenText === '-' || state.prevTokenText === '+'),
             isLateralViewComma,
             prevIsDoubleColon,
+            prevTokenText: state.prevTokenText,
+            currentTokenIsStringLiteral: symbolicName === 'STRING_LITERAL',
         });
         
         const needsCommaSpace = shouldAddCommaSpace(builder, state.insideParens, state.justOutputCommaFirstStyle);

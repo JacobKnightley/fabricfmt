@@ -157,9 +157,15 @@ export function shouldSkipSpace(
         prevTokenWasUnaryOperator: boolean;
         isLateralViewComma: boolean;
         prevIsDoubleColon: boolean;
+        prevTokenText: string;
+        currentTokenIsStringLiteral: boolean;
     }
 ): boolean {
     const lastChar = builder.getLastChar();
+    
+    // Check for hex/binary literals: X'...' or B'...'
+    const prevWasHexBinaryPrefix = (context.prevTokenText === 'X' || context.prevTokenText === 'B') && 
+                                    context.currentTokenIsStringLiteral;
     
     return (
         lastChar === '(' || 
@@ -181,7 +187,8 @@ export function shouldSkipSpace(
         context.prevTokenWasUnaryOperator ||
         lastChar === '[' || 
         text === '[' || 
-        text === ']'
+        text === ']' ||
+        prevWasHexBinaryPrefix
     );
 }
 
