@@ -148,6 +148,9 @@ export interface AnalyzerResult {
     // GROUP BY ALL
     groupByAllTokens: Set<number>;
     
+    // Complex type tracking (ARRAY<>, MAP<>, STRUCT<>)
+    complexTypeTokens: Set<number>;
+    
     // Multi-arg function expansion
     multiArgFunctionInfo: Map<number, MultiArgFunctionInfo>;
     
@@ -204,6 +207,7 @@ export interface FormattingState {
     prevTokenText: string;
     prevTokenType: number;
     prevTokenWasUnaryOperator: boolean;
+    prevWasInsideComplexType: boolean;
     
     // Hint handling
     insideHint: boolean;

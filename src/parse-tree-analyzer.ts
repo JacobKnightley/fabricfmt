@@ -95,6 +95,9 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // GROUP BY ALL
     groupByAllTokens: Set<number> = new Set();
     
+    // Complex type tracking
+    complexTypeTokens: Set<number> = new Set();
+    
     // Multi-arg function expansion
     multiArgFunctionInfo: Map<number, MultiArgFunctionInfo> = new Map();
     
@@ -155,6 +158,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             mergeWhenTokens: this.mergeWhenTokens,
             lateralViewCommas: this.lateralViewCommas,
             groupByAllTokens: this.groupByAllTokens,
+            complexTypeTokens: this.complexTypeTokens,
             multiArgFunctionInfo: this.multiArgFunctionInfo,
             windowDefInfo: this.windowDefInfo,
             pivotInfo: this.pivotInfo,
@@ -680,6 +684,15 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     visitCreateTable(ctx: any): any {
         this._markDdlColumnList(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    // ========== COMPLEX TYPE HANDLING ==========
+    
+    visitComplexDataType(ctx: any): any {
+        // Mark all tokens between LT and GT as being inside a complex type
+        // This prevents spacing around < > and newlines at commas
+        this._markComplexTypeTokens(ctx);
         return this.visitChildren(ctx);
     }
     
@@ -1740,6 +1753,16 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 if (!this.tokenDepthMap.has(i)) {
                     this.tokenDepthMap.set(i, this.subqueryDepth);
                 }
+            }
+        }
+    }
+    
+    private _markComplexTypeTokens(ctx: any): void {
+        // Mark all tokens in this context as being inside a complex type
+        // This includes the ARRAY/MAP/STRUCT keyword, LT, type arguments, commas, and GT
+        if (ctx.start && ctx.stop) {
+            for (let i = ctx.start.tokenIndex; i <= ctx.stop.tokenIndex; i++) {
+                this.complexTypeTokens.add(i);
             }
         }
     }

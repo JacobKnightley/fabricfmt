@@ -159,6 +159,8 @@ export function shouldSkipSpace(
         prevIsDoubleColon: boolean;
         prevTokenText: string;
         currentTokenIsStringLiteral: boolean;
+        isInsideComplexType: boolean;
+        prevWasInsideComplexType: boolean;
     }
 ): boolean {
     const lastChar = builder.getLastChar();
@@ -167,6 +169,20 @@ export function shouldSkipSpace(
     const prevWasHexBinaryPrefix = (context.prevTokenText.toUpperCase() === 'X' || 
                                      context.prevTokenText.toUpperCase() === 'B') && 
                                     context.currentTokenIsStringLiteral;
+    
+    // Inside complex types: no spaces around < > or before commas
+    if (context.isInsideComplexType || context.prevWasInsideComplexType) {
+        // Skip space between tokens that are both inside the complex type
+        // But DON'T skip space when transitioning out (e.g., > FROM)
+        if (text === '<' || text === '>' || text === ':') {
+            return true;  // Skip space before <, >, :
+        }
+        if (context.prevWasInsideComplexType && context.isInsideComplexType) {
+            if (lastChar === '<' || lastChar === '>' || lastChar === ':') {
+                return true;  // Skip space after <, >, :
+            }
+        }
+    }
     
     return (
         lastChar === '(' || 

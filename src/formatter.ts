@@ -532,7 +532,7 @@ function formatTokens(
         if (needsNewline) {
             outputWithNewline(builder, comments, indent, state);
         } else {
-            outputWithoutNewline(builder, comments, text, symbolicName, state, currentTokenIsUnaryOperator, ctx.isLateralViewComma);
+            outputWithoutNewline(builder, comments, text, symbolicName, state, currentTokenIsUnaryOperator, ctx.isLateralViewComma, ctx.isInsideComplexType);
         }
         
         builder.push(outputText);
@@ -680,6 +680,7 @@ function formatTokens(
         state.prevTokenWasUnaryOperator = currentTokenIsUnaryOperator;
         state.prevTokenText = text;
         state.prevTokenType = tokenType;
+        state.prevWasInsideComplexType = ctx.isInsideComplexType;
     }
     
     // Output remaining comments
@@ -785,6 +786,7 @@ function getTokenContext(tokenIndex: number, analysis: AnalyzerResult) {
         isMergeUsing: analysis.mergeUsingTokens.has(tokenIndex),
         isMergeOn: analysis.mergeOnTokens.has(tokenIndex),
         isMergeWhen: analysis.mergeWhenTokens.has(tokenIndex),
+        isInsideComplexType: analysis.complexTypeTokens.has(tokenIndex),
     };
 }
 
@@ -991,22 +993,23 @@ function determineNewlineAndIndent(
     }
     
     // List comma handling - but NOT for IN list commas (those use wrap logic instead)
-    if (ctx.isListComma && state.insideFunctionArgs === 0 && !isInListComma(tokenIndex, analysis)) {
+    // Also NOT inside complex types (ARRAY<>, MAP<>, STRUCT<>)
+    if (ctx.isListComma && state.insideFunctionArgs === 0 && !isInListComma(tokenIndex, analysis) && !ctx.isInsideComplexType) {
         needsNewline = true;
         indent = indentCalc.getCommaIndent(state.subqueryDepth, state.ddlDepth);
         state.isFirstListItem = false;
         state.justOutputCommaFirstStyle = true;
     }
     
-    // CTE comma
-    if (ctx.isCteComma) {
+    // CTE comma - not inside complex types
+    if (ctx.isCteComma && !ctx.isInsideComplexType) {
         needsNewline = true;
         indent = '';
         state.justOutputCommaFirstStyle = true;
     }
     
-    // DDL comma
-    if (ctx.isDdlComma) {
+    // DDL comma - not inside complex types
+    if (ctx.isDdlComma && !ctx.isInsideComplexType) {
         needsNewline = true;
         indent = indentCalc.getCommaIndent(state.subqueryDepth);
         state.justOutputCommaFirstStyle = true;
@@ -1132,7 +1135,8 @@ function outputWithoutNewline(
     symbolicName: string | null,
     state: ReturnType<typeof createInitialState>,
     currentTokenIsUnaryOperator: boolean,
-    isLateralViewComma: boolean = false
+    isLateralViewComma: boolean = false,
+    isInsideComplexType: boolean = false
 ): void {
     if (comments.hasPending()) {
         outputComments(builder, comments.getPending(), !builder.isEmpty());
@@ -1159,6 +1163,8 @@ function outputWithoutNewline(
             prevIsDoubleColon,
             prevTokenText: state.prevTokenText,
             currentTokenIsStringLiteral: symbolicName === 'STRING_LITERAL',
+            isInsideComplexType: isInsideComplexType,
+            prevWasInsideComplexType: state.prevWasInsideComplexType,
         });
         
         const needsCommaSpace = shouldAddCommaSpace(builder, state.insideParens, state.justOutputCommaFirstStyle);
