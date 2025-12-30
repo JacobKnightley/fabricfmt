@@ -95,14 +95,12 @@ export function isKeywordToken(tokenType: number, tokenText: string): boolean {
         return true;
     }
     
-    // Handle keyword aliases: TEMP -> TEMPORARY, DEC -> DECIMAL, etc.
-    // For aliases, we check against a known list of alias mappings
+    // Handle keyword aliases where the grammar defines multiple literals for one token.
+    // Example: TEMPORARY: 'TEMPORARY' | 'TEMP'; - when user types 'temp', tokenType is TEMPORARY
+    // Note: DEC, INT, CHAR are separate tokens in the grammar (not aliases), so they're not listed here.
     const aliasKeywords: Record<string, string> = {
-        'TEMP': 'TEMPORARY',
-        'DEC': 'DECIMAL',
-        'INT': 'INTEGER',
-        'CHAR': 'CHARACTER',
-        'BOOL': 'BOOLEAN',
+        'TEMP': 'TEMPORARY',     // TEMPORARY: 'TEMPORARY' | 'TEMP';
+        'REGEXP': 'RLIKE',       // RLIKE: 'RLIKE' | 'REGEXP';
     };
     if (aliasKeywords[textUpper] && symbolicName === aliasKeywords[textUpper]) {
         return true;

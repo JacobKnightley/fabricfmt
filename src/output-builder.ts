@@ -212,11 +212,9 @@ export function shouldSkipSpace(
         text === '[' || 
         text === ']' ||
         prevWasHexBinaryPrefix ||
-        // Complex type handling: no spaces around < and > and : (for struct fields)
+        // Complex type handling: no spaces around < and > and : (for struct fields like a:INT)
         (inComplexType && isComplexTypeBracket) ||
         (inComplexType && prevWasComplexTypeBracket) ||
-        (context.prevTokenText === '<' && inComplexType) ||  // Space after < in complex type
-        (text === '>' && inComplexType) ||  // Space before > in complex type
         (text === ':' && inComplexType) ||  // No space before : in struct field (a:INT)
         (lastChar === ':' && inComplexType)  // No space after : in struct field
     );
