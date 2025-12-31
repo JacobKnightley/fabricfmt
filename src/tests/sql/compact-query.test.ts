@@ -9,7 +9,7 @@
  * - WHERE clause has at most one condition (no AND/OR)
  * - The entire query fits within MAX_LINE_WIDTH (140 chars)
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const compactQueryTests: TestSuite = {
     name: 'Simple Query Compaction',

@@ -2,7 +2,7 @@
  * Subquery and CTE Tests
  * Note: Tests use multiple columns to avoid compact query mode
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const subqueryTests: TestSuite = {
     name: 'Subqueries',

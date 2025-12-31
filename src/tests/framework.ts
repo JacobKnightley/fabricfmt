@@ -2,10 +2,21 @@
  * Test Framework for Spark SQL Formatter
  */
 
+/** Custom validator result */
+export interface ValidatorResult {
+    passed: boolean;
+    message?: string;
+}
+
+/** Custom validator function type */
+export type CustomValidator = (input: string, expected: string, actual: string) => ValidatorResult;
+
 export interface TestCase {
     name: string;
     input: string;
     expected: string;
+    /** Optional custom validator for complex checks like idempotency */
+    customValidator?: CustomValidator;
 }
 
 export interface TestSuite {
@@ -19,6 +30,7 @@ export interface TestResult {
     input?: string;
     expected?: string;
     got?: string;
+    message?: string;
 }
 
 export interface SuiteResult {
@@ -35,7 +47,18 @@ export function runSuite(suite: TestSuite, formatFn: (sql: string) => string): S
 
     for (const tc of suite.tests) {
         const result = formatFn(tc.input);
-        const success = result === tc.expected;
+        
+        // Use custom validator if provided, otherwise simple equality check
+        let success: boolean;
+        let message: string | undefined;
+        
+        if (tc.customValidator) {
+            const validatorResult = tc.customValidator(tc.input, tc.expected, result);
+            success = validatorResult.passed;
+            message = validatorResult.message;
+        } else {
+            success = result === tc.expected;
+        }
 
         if (success) {
             passed++;
@@ -48,6 +71,7 @@ export function runSuite(suite: TestSuite, formatFn: (sql: string) => string): S
                 input: tc.input,
                 expected: tc.expected,
                 got: result,
+                message: message,
             });
         }
     }
@@ -67,6 +91,9 @@ export function printSuiteResult(result: SuiteResult, verbose: boolean = false):
                 console.log(`    Input:    ${r.input}`);
                 console.log(`    Expected: ${r.expected?.replace(/\n/g, '\\n')}`);
                 console.log(`    Got:      ${r.got?.replace(/\n/g, '\\n')}`);
+                if (r.message) {
+                    console.log(`    Message:  ${r.message.replace(/\n/g, '\\n')}`);
+                }
             }
         }
     }

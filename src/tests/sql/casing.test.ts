@@ -1,7 +1,7 @@
 /**
  * Casing and Identifier Tests
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const casingTests: TestSuite = {
     name: 'Casing Rules',

@@ -4,7 +4,7 @@
  * Tests for type conversion syntax: CAST, TRY_CAST, :: operator,
  * and complex type syntax (ARRAY, MAP, STRUCT).
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const castTests: TestSuite = {
     name: 'CAST Function',

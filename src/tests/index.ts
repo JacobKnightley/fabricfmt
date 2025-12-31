@@ -6,27 +6,27 @@
 import { formatSql } from '../formatter.js';
 import { runSuite, printSuiteResult, printSummary, SuiteResult } from './framework.js';
 
-// Import all test suites
-import { basicSelectTests, tablesampleTests } from './basic-select.test.js';
-import { casingTests, aliasTests, builtinFunctionCasingTests } from './casing.test.js';
-import { joinTests } from './joins.test.js';
-import { groupByTests, distributionTests } from './grouping.test.js';
-import { whereTests, selectExceptTests } from './where.test.js';
-import { subqueryTests, cteTests, setOperationTests, subqueryIndentationTests } from './subqueries.test.js';
-import { caseExpressionTests, literalTests, unaryOperatorTests, arrayAccessTests, nestedFunctionTests, lambdaTests } from './expressions.test.js';
-import { commentTests, hintTests } from './comments.test.js';
-import { ddlTests } from './ddl.test.js';
-import { dmlTests } from './dml.test.js';
-import { windowFunctionTests, namedWindowTests, nullHandlingTests } from './window-functions.test.js';
-import { pivotTests, unpivotTests, lateralViewTests, stackTests } from './table-operators.test.js';
-import { castTests, doubleColonCastTests } from './type-casts.test.js';
-import { utilityTests } from './utility.test.js';
-import { magicCommandsTests } from './magic-commands.test.js';
-import { semicolonTests } from './semicolon.test.js';
-import { noqaStatementTests, noqaExpansionTests } from './noqa.test.js';
-import { compactQueryTests } from './compact-query.test.js';
-import { magicSqlSuite, runMagicSqlSuite } from './magic-sql.test.js';
-import { deltaLakeTests } from './delta-lake.test.js';
+// Import all SQL test suites
+import { basicSelectTests, tablesampleTests } from './sql/basic-select.test.js';
+import { casingTests, aliasTests, builtinFunctionCasingTests } from './sql/casing.test.js';
+import { joinTests } from './sql/joins.test.js';
+import { groupByTests, distributionTests } from './sql/grouping.test.js';
+import { whereTests, selectExceptTests } from './sql/where.test.js';
+import { subqueryTests, cteTests, setOperationTests, subqueryIndentationTests } from './sql/subqueries.test.js';
+import { caseExpressionTests, literalTests, unaryOperatorTests, arrayAccessTests, nestedFunctionTests, lambdaTests } from './sql/expressions.test.js';
+import { commentTests, hintTests } from './sql/comments.test.js';
+import { ddlTests } from './sql/ddl.test.js';
+import { dmlTests } from './sql/dml.test.js';
+import { windowFunctionTests, namedWindowTests, nullHandlingTests } from './sql/window-functions.test.js';
+import { pivotTests, unpivotTests, lateralViewTests, stackTests } from './sql/table-operators.test.js';
+import { castTests, doubleColonCastTests } from './sql/type-casts.test.js';
+import { utilityTests } from './sql/utility.test.js';
+import { magicCommandsTests } from './sql/magic-commands.test.js';
+import { semicolonTests } from './sql/semicolon.test.js';
+import { fmtOffTests, fmtInlineTests } from './sql/format-directives.test.js';
+import { compactQueryTests } from './sql/compact-query.test.js';
+import { magicSqlSuite, runMagicSqlSuite } from './sql/magic-sql.test.js';
+import { deltaLakeTests } from './sql/delta-lake.test.js';
 
 // All test suites in order
 const allSuites = [
@@ -89,8 +89,8 @@ const allSuites = [
     semicolonTests,
     
     // Formatting control
-    noqaStatementTests,
-    noqaExpansionTests,
+    fmtOffTests,
+    fmtInlineTests,
     compactQueryTests,
     
     // Extensions (not in grammar)

@@ -1,8 +1,8 @@
 {
-  "name": "@jacobknightley/sparkfmt",
-  "version": "0.0.3",
+  "name": "@jacobknightley/fabricfmt",
+  "version": "0.0.1",
   "type": "module",
-  "description": "A fast, opinionated Apache Spark SQL formatter with zero configuration",
+  "description": "A fast, opinionated formatter for Microsoft Fabric notebooks with Spark SQL and Python support",
   "main": "dist/index.js",
   "exports": {
     ".": {
@@ -12,7 +12,7 @@
   },
   "types": "dist/index.d.ts",
   "bin": {
-    "sparkfmt": "dist/cli.js"
+    "fabricfmt": "dist/cli.js"
   },
   "files": [
     "dist/**/*.js",
@@ -20,22 +20,25 @@
     "!dist/tests/**"
   ],
   "keywords": [
+    "fabric",
+    "microsoft-fabric",
     "spark",
     "sql",
+    "python",
+    "pyspark",
     "formatter",
-    "databricks",
-    "fabric",
+    "notebook",
     "delta-lake",
     "antlr",
-    "linter"
+    "ruff"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jacobknightley/sparkfmt.git"
+    "url": "https://github.com/jacobknightley/fabricfmt.git"
   },
-  "homepage": "https://github.com/jacobknightley/sparkfmt#readme",
+  "homepage": "https://github.com/jacobknightley/fabricfmt#readme",
   "bugs": {
-    "url": "https://github.com/jacobknightley/sparkfmt/issues"
+    "url": "https://github.com/jacobknightley/fabricfmt/issues"
   },
   "author": "Jacob Knightley",
   "license": "MIT",
@@ -52,6 +55,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
+    "@astral-sh/ruff-wasm-nodejs": "^0.14.10",
     "antlr4": "^4.13.2"
   }
 }

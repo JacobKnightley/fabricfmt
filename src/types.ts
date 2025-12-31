@@ -17,6 +17,15 @@ export interface MultiArgFunctionInfo {
     commaIndices: number[];
     spanLength: number;
     functionName?: string;  // For special handling (e.g., STACK pairs)
+    charStart: number;      // Character position of the LEFT_PAREN for relative offset calculation
+}
+
+/**
+ * Nested function position info for expansion checking.
+ */
+export interface NestedFunctionInfo {
+    funcIdx: number;           // Token index of the function's LEFT_PAREN
+    relativeOffset: number;    // Character offset from parent construct's start
 }
 
 /**
@@ -27,6 +36,7 @@ export interface WindowDefInfo {
     orderByTokenIndex: number | null;
     windowFrameTokenIndex: number | null;
     spanLength: number;
+    nestedFunctions: NestedFunctionInfo[];  // Nested functions with their relative offsets
 }
 
 /**

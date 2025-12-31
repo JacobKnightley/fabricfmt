@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * CLI for Spark SQL Formatter
+ * CLI for Spark SQL & Python Formatter
  */
 import { formatSql } from './formatter.js';
-import { formatFabricNotebook } from './magic-sql-extractor.js';
+import { formatNotebook, formatFabricNotebook } from './notebook-formatter.js';
+import { getPythonFormatter } from './formatters/index.js';
+import { loadRuffConfig } from './config.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
@@ -12,6 +14,54 @@ const args = process.argv.slice(2);
 
 /** Supported file extensions for formatting */
 const SUPPORTED_EXTENSIONS = ['.sql', '.py', '.scala', '.r'];
+
+/** CLI options */
+interface CliOptions {
+    check: boolean;
+    stdout: boolean;
+    inline: boolean;
+    help: boolean;
+    noPython: boolean;
+    noSql: boolean;
+    verbose: boolean;
+}
+
+/** Parse CLI arguments */
+function parseArgs(args: string[]): { options: CliOptions; paths: string[] } {
+    const options: CliOptions = {
+        check: false,
+        stdout: false,
+        inline: false,
+        help: false,
+        noPython: false,
+        noSql: false,
+        verbose: false,
+    };
+    const paths: string[] = [];
+    
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === '-c' || arg === '--check') {
+            options.check = true;
+        } else if (arg === '--stdout') {
+            options.stdout = true;
+        } else if (arg === '-i' || arg === '--inline') {
+            options.inline = true;
+        } else if (arg === '-h' || arg === '--help') {
+            options.help = true;
+        } else if (arg === '--no-python') {
+            options.noPython = true;
+        } else if (arg === '--no-sql') {
+            options.noSql = true;
+        } else if (arg === '-v' || arg === '--verbose') {
+            options.verbose = true;
+        } else if (!arg.startsWith('-')) {
+            paths.push(arg);
+        }
+    }
+    
+    return { options, paths };
+}
 
 /**
  * Recursively find all files with supported extensions in a directory.
@@ -43,8 +93,6 @@ function findSupportedFiles(dir: string): string[] {
 
 /**
  * Expand a list of paths to include files from directories.
- * If a path is a directory, recursively find all supported files.
- * If a path is a file, include it as-is.
  */
 function expandPaths(paths: string[]): string[] {
     const files: string[] = [];
@@ -57,7 +105,6 @@ function expandPaths(paths: string[]): string[] {
                 files.push(p);
             }
         } else {
-            // Could be a glob pattern handled by shell, just include it
             files.push(p);
         }
     }
@@ -69,17 +116,41 @@ function expandPaths(paths: string[]): string[] {
  * .py, .scala, .r, and .sql files are treated as potential Fabric notebooks.
  * If a .sql file is not a Fabric notebook, it's formatted as standard SQL.
  */
-function formatContent(content: string, filePath?: string): string {
+async function formatContent(
+    content: string, 
+    filePath: string | undefined, 
+    options: CliOptions,
+    ruffConfig?: object
+): Promise<string> {
     const notebookExtensions = ['.py', '.scala', '.r', '.sql'];
+    
+    // Determine which formatters to use based on CLI options
+    const formatPython = !options.noPython;
+    const formatSqlCells = !options.noSql;
+    
     if (filePath && notebookExtensions.some(ext => filePath.endsWith(ext))) {
-        const result = formatFabricNotebook(content, formatSql);
+        // Use async formatNotebook with Python support
+        const { content: formatted, stats } = await formatNotebook(content, {
+            formatPython,
+            formatSql: formatSqlCells,
+        });
+        
+        if (options.verbose && (stats.sqlCellsFormatted > 0 || stats.pythonCellsFormatted > 0)) {
+            console.error(`  SQL: ${stats.sqlCellsFormatted}, Python: ${stats.pythonCellsFormatted}`);
+        }
+        
         // If unchanged and it's a .sql file, format as standard SQL
-        if (result === content && filePath.endsWith('.sql')) {
+        if (formatted === content && filePath.endsWith('.sql') && formatSqlCells) {
             return formatSql(content);
         }
-        return result;
+        return formatted;
     }
-    return formatSql(content);
+    
+    // Plain SQL file or stdin
+    if (formatSqlCells) {
+        return formatSql(content);
+    }
+    return content;
 }
 
 // Helper to output formatted SQL
@@ -118,31 +189,13 @@ function convertLineEndings(content: string, lineEnding: '\r\n' | '\n'): string 
     return normalized;
 }
 
-const remainingArgs = args;
-
-if (remainingArgs.length === 0) {
-    // Interactive mode - read from stdin
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-    
-    let sql = '';
-    
-    rl.on('line', (line) => {
-        sql += line + '\n';
-    });
-    
-    rl.on('close', () => {
-        const formatted = formatSql(sql.trim());
-        output(formatted);
-    });
-} else if (remainingArgs[0] === '--help' || remainingArgs[0] === '-h') {
-    console.log(`Spark SQL Formatter
+/** Print help message */
+function printHelp() {
+    console.log(`Fabric Notebook Formatter (Spark SQL & Python)
 
 Usage:
-  sparkfmt [options] [file|directory...]
-  echo "select * from t" | sparkfmt
+  fabricfmt [options] [file|directory...]
+  echo "select * from t" | fabricfmt
 
 Arguments:
   file                A SQL, Python, Scala, or R file to format
@@ -153,69 +206,118 @@ Options:
   -c, --check         Check if files need formatting (exit 1 if so)
   -i, --inline        Format SQL provided as argument
   --stdout            Print to stdout instead of formatting in-place
+  --no-python         Skip Python formatting (SQL only)
+  --no-sql            Skip SQL formatting (Python only)
+  -v, --verbose       Verbose output
 
 Examples:
-  sparkfmt query.sql                    Format file in-place
-  sparkfmt ./src                        Format all supported files in directory
-  sparkfmt *.sql                        Format multiple files in-place
-  sparkfmt -i "select * from t"         Format inline SQL
-  sparkfmt -c ./src                     Check if any files need formatting
-  sparkfmt --stdout query.sql           Print formatted SQL to stdout
+  fabricfmt query.sql                    Format file in-place
+  fabricfmt ./src                        Format all supported files in directory
+  fabricfmt *.sql                        Format multiple files in-place
+  fabricfmt -i "select * from t"         Format inline SQL
+  fabricfmt -c ./src                     Check if any files need formatting
+  fabricfmt --stdout query.sql           Print formatted SQL to stdout
+  fabricfmt --no-python ./src            Format SQL cells only (skip Python)
 `);
-} else if (remainingArgs[0] === '--stdout') {
-    // Print to stdout instead of in-place
-    const file = remainingArgs[1];
-    if (!file) {
-        console.error('Error: No file specified for --stdout');
-        process.exit(2);
+}
+
+/** Main async entry point */
+async function main() {
+    const { options, paths } = parseArgs(args);
+    
+    // Load ruff config from current directory
+    let ruffConfig: object | undefined;
+    try {
+        ruffConfig = loadRuffConfig('.');
+        if (options.verbose && ruffConfig) {
+            console.log('Loaded ruff configuration');
+        }
+    } catch (e) {
+        // No config found, use defaults
     }
-    const content = fs.readFileSync(file, 'utf-8');
-    console.log(formatContent(content, file));
-} else if (remainingArgs[0] === '-i' || remainingArgs[0] === '--inline') {
-    const sql = remainingArgs.slice(1).join(' ');
-    output(formatSql(sql));
-} else if (remainingArgs[0] === '-c' || remainingArgs[0] === '--check') {
-    const paths = remainingArgs.slice(1);
+    
+    if (options.help) {
+        printHelp();
+        return;
+    }
+    
     if (paths.length === 0) {
-        console.error('Error: No file or directory specified for --check');
-        process.exit(2);
+        // Interactive mode - read from stdin
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+        });
+        
+        let sql = '';
+        
+        rl.on('line', (line) => {
+            sql += line + '\n';
+        });
+        
+        rl.on('close', async () => {
+            const formatted = await formatContent(sql.trim(), undefined, options, ruffConfig);
+            console.log(formatted);
+        });
+        return;
     }
+    
+    if (options.inline) {
+        // Format inline SQL
+        const sql = paths.join(' ');
+        console.log(formatSql(sql));
+        return;
+    }
+    
+    if (options.stdout) {
+        // Print to stdout instead of in-place
+        const file = paths[0];
+        if (!file) {
+            console.error('Error: No file specified for --stdout');
+            process.exit(2);
+        }
+        const content = fs.readFileSync(file, 'utf-8');
+        const formatted = await formatContent(content, file, options, ruffConfig);
+        console.log(formatted);
+        return;
+    }
+    
+    // Expand directories to files
     const files = expandPaths(paths);
     if (files.length === 0) {
         console.log('No supported files found');
         process.exit(0);
     }
-    let needsFormatting = false;
-    for (const file of files) {
-        try {
-            const content = fs.readFileSync(file, 'utf-8');
-            const formatted = formatContent(content, file);
-            if (formatted !== content) {
-                console.log(`File ${file} needs formatting`);
-                needsFormatting = true;
+    
+    if (options.check) {
+        // Check mode - don't modify files
+        let needsFormatting = false;
+        for (const file of files) {
+            try {
+                const content = fs.readFileSync(file, 'utf-8');
+                const formatted = await formatContent(content, file, options, ruffConfig);
+                if (formatted !== content) {
+                    console.log(`File ${file} needs formatting`);
+                    needsFormatting = true;
+                }
+            } catch (e: any) {
+                console.error(`Error checking ${file}: ${e.message}`);
             }
-        } catch (e: any) {
-            console.error(`Error checking ${file}: ${e.message}`);
         }
+        if (needsFormatting) {
+            process.exit(1);
+        }
+        console.log(`All ${files.length} file(s) are properly formatted`);
+        return;
     }
-    if (needsFormatting) {
-        process.exit(1);
-    }
-    console.log(`All ${files.length} file(s) are properly formatted`);
-} else {
-    // File/directory argument(s) - format in-place
-    const files = expandPaths(remainingArgs);
-    if (files.length === 0) {
-        console.log('No supported files found');
-        process.exit(0);
-    }
+    
+    // Default: format files in-place
     let formattedCount = 0;
     for (const file of files) {
         try {
             const content = fs.readFileSync(file, 'utf-8');
             const originalLineEnding = detectLineEnding(content);
             const normalizedContent = normalizeLineEndings(content);
-            const formatted = formatContent(normalizedContent, file);
+            const formatted = await formatContent(normalizedContent, file, options, ruffConfig);
             const formattedWithOriginalEndings = convertLineEndings(formatted, originalLineEnding);
             
             if (formattedWithOriginalEndings !== content) {
@@ -234,3 +336,9 @@ Examples:
         console.log(`Formatted ${formattedCount} of ${files.length} file(s)`);
     }
 }
+
+// Run main
+main().catch((e) => {
+    console.error(`Error: ${e.message}`);
+    process.exit(1);
+});

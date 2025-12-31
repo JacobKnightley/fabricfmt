@@ -402,12 +402,37 @@ export function shouldExpandFunction(
 
 /**
  * Decides if a window definition should be expanded based on line width.
+ * Also expands if any nested function within would expand.
+ * 
+ * Uses grammar-derived relative offsets to calculate the actual column position
+ * of each nested function, ensuring accurate expansion decisions.
  */
 export function shouldExpandWindow(
     currentColumn: number,
-    windowInfo: WindowDefInfo
+    windowInfo: WindowDefInfo,
+    multiArgFunctionInfo?: Map<number, { spanLength: number }>
 ): boolean {
-    return currentColumn + windowInfo.spanLength > MAX_LINE_WIDTH;
+    // Direct span check for window itself
+    if (currentColumn + windowInfo.spanLength > MAX_LINE_WIDTH) {
+        return true;
+    }
+    
+    // Check if any nested function would expand at its actual position
+    // Use the relative offset to calculate where the nested function actually sits
+    if (multiArgFunctionInfo && windowInfo.nestedFunctions.length > 0) {
+        for (const { funcIdx, relativeOffset } of windowInfo.nestedFunctions) {
+            const funcInfo = multiArgFunctionInfo.get(funcIdx);
+            if (funcInfo) {
+                // Calculate the actual column where this nested function's content starts
+                const nestedFuncColumn = currentColumn + relativeOffset;
+                if (nestedFuncColumn + funcInfo.spanLength > MAX_LINE_WIDTH) {
+                    return true;  // Nested function would expand at its position, so expand OVER too
+                }
+            }
+        }
+    }
+    
+    return false;
 }
 
 /**

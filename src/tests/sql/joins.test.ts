@@ -1,7 +1,7 @@
 /**
  * JOIN Tests
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const joinTests: TestSuite = {
     name: 'JOIN Variants',

@@ -1,7 +1,7 @@
 /**
  * Utility Command Tests
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const utilityTests: TestSuite = {
     name: 'Utility Commands',

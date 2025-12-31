@@ -8,7 +8,7 @@
  * 
  * See: https://docs.databricks.com/sql/language-manual#delta-lake-statements
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const deltaLakeTests: TestSuite = {
     name: 'Delta Lake Extensions',

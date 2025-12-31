@@ -331,6 +331,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         // Collect CAST as potentially expandable
         if (ctx.children) {
             let leftParenTokenIndex: number | null = null;
+            let leftParenCharStart: number = 0;
             let rightParenTokenIndex: number | null = null;
             
             for (const child of ctx.children) {
@@ -338,6 +339,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                     const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
                     if (symName === 'LEFT_PAREN' && leftParenTokenIndex === null) {
                         leftParenTokenIndex = child.symbol.tokenIndex;
+                        leftParenCharStart = child.symbol.start ?? 0;
                     } else if (symName === 'RIGHT_PAREN') {
                         rightParenTokenIndex = child.symbol.tokenIndex;
                     }
@@ -350,7 +352,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                     closeParenIndex: rightParenTokenIndex,
                     commaIndices: [],
                     spanLength: spanLength,
-                    functionName: 'CAST'
+                    functionName: 'CAST',
+                    charStart: leftParenCharStart
                 });
             }
         }
@@ -539,8 +542,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     }
     
     visitWindowDef(ctx: any): any {
+        // Visit children FIRST so nested functions are collected before we check them
+        const result = this.visitChildren(ctx);
         this._collectWindowDefInfo(ctx);
-        return this.visitChildren(ctx);
+        return result;
     }
     
     // ========== PIVOT/UNPIVOT CONTEXTS ==========
@@ -962,8 +967,9 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         if (whereClause && this._hasMultipleConditions(whereClause)) return;
         
         // This query qualifies as simple
+        // Use forExpansion=false to get actual span regardless of input layout
         if (selectToken) {
-            const spanLength = this._calculateNormalizedSpanLength(ctx);
+            const spanLength = this._calculateSpanLength(ctx, false);
             this.simpleQueries.set(selectToken.tokenIndex, {
                 selectTokenIndex: selectToken.tokenIndex,
                 spanLength: spanLength,
@@ -1148,16 +1154,61 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // ========== PRIVATE HELPER METHODS ==========
     
     /**
-     * Calculate span length based on character positions in source.
-     * NOTE: This is position-based and varies with input formatting.
-     * For expansion decisions, use _calculateNormalizedSpanLength instead.
+     * Calculate the expected formatted span length of a context.
+     * 
+     * This walks all tokens within the context and sums:
+     * - Each token's text length
+     * - One space between each pair of tokens (standard formatting)
+     * 
+     * This gives an accurate estimate of the formatted output length.
+     * 
+     * @param ctx The parse tree context
+     * @param forExpansion If true, returns Infinity for multi-line constructs
+     *                     to prevent already-expanded constructs from collapsing.
+     *                     If false, calculates actual span (for simple query detection).
      */
-    private _calculateSpanLength(ctx: any): number {
+    private _calculateSpanLength(ctx: any, forExpansion: boolean = true): number {
         if (!ctx || !ctx.start || !ctx.stop) return 0;
-        const startIdx = ctx.start.start;
-        const stopIdx = ctx.stop.stop;
-        if (startIdx === undefined || stopIdx === undefined) return 0;
-        return stopIdx - startIdx + 1;
+        
+        // For expansion checking: if the construct spans multiple lines, return Infinity
+        // This ensures idempotency: once expanded, it stays expanded
+        // For simple query detection: we want the actual span regardless of input layout
+        if (forExpansion) {
+            const startLine = ctx.start.line;
+            const stopLine = ctx.stop.line;
+            if (startLine !== undefined && stopLine !== undefined && stopLine > startLine) {
+                return Infinity;
+            }
+        }
+        
+        // Collect all tokens within this context by walking the tree
+        const tokens: string[] = [];
+        const collectTokens = (node: any): void => {
+            if (!node) return;
+            if (node.symbol) {
+                // This is a terminal node (token)
+                tokens.push(node.symbol.text || '');
+            } else if (node.children) {
+                for (const child of node.children) {
+                    collectTokens(child);
+                }
+            }
+        };
+        collectTokens(ctx);
+        
+        if (tokens.length === 0) {
+            // Fallback to character-based
+            const startIdx = ctx.start.start;
+            const stopIdx = ctx.stop.stop;
+            if (startIdx === undefined || stopIdx === undefined) return 0;
+            return stopIdx - startIdx + 1;
+        }
+        
+        // Sum token lengths + (n-1) spaces between tokens
+        const tokenLengths = tokens.reduce((sum, t) => sum + t.length, 0);
+        const spaceBetween = Math.max(0, tokens.length - 1);
+        
+        return tokenLengths + spaceBetween;
     }
 
     /**
@@ -1212,6 +1263,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         if (!ctx.children) return;
         
         let leftParenTokenIndex: number | null = null;
+        let leftParenCharStart: number = 0;
         let rightParenTokenIndex: number | null = null;
         const commaTokenIndices: number[] = [];
         
@@ -1229,6 +1281,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
                 if (symName === 'LEFT_PAREN' && leftParenTokenIndex === null) {
                     leftParenTokenIndex = child.symbol.tokenIndex;
+                    leftParenCharStart = child.symbol.start ?? 0;
                 } else if (symName === 'RIGHT_PAREN') {
                     rightParenTokenIndex = child.symbol.tokenIndex;
                     break;
@@ -1245,7 +1298,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 closeParenIndex: rightParenTokenIndex,
                 commaIndices: commaTokenIndices,
                 spanLength: spanLength,
-                functionName: functionName
+                functionName: functionName,
+                charStart: leftParenCharStart
             });
         }
     }
@@ -1257,6 +1311,9 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         let rightParenTokenIndex: number | null = null;
         let orderByTokenIndex: number | null = null;
         let windowFrameTokenIndex: number | null = null;
+        
+        // Get window's start character position for calculating relative offsets
+        const windowStartChar = ctx.start?.start ?? 0;
         
         for (const child of ctx.children) {
             if (child.symbol) {
@@ -1276,13 +1333,26 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             }
         }
         
+        // Collect nested multi-arg functions with their relative character offsets
+        const nestedFunctions: { funcIdx: number; relativeOffset: number }[] = [];
+        if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
+            for (const [funcIdx, funcInfo] of this.multiArgFunctionInfo) {
+                if (funcIdx > leftParenTokenIndex && funcIdx < rightParenTokenIndex) {
+                    // Use the charStart from the function info to calculate relative offset
+                    const relativeOffset = funcInfo.charStart - windowStartChar;
+                    nestedFunctions.push({ funcIdx, relativeOffset });
+                }
+            }
+        }
+        
         if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
             const spanLength = this._calculateNormalizedSpanLength(ctx);
             this.windowDefInfo.set(leftParenTokenIndex, {
                 closeParenIndex: rightParenTokenIndex,
                 orderByTokenIndex: orderByTokenIndex,
                 windowFrameTokenIndex: windowFrameTokenIndex,
-                spanLength: spanLength
+                spanLength: spanLength,
+                nestedFunctions: nestedFunctions
             });
         }
     }

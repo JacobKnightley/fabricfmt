@@ -4,7 +4,8 @@
  * Tests for window functions including OVER clause, named windows,
  * frame specifications, and null handling modifiers.
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
+import { formatSql } from '../../formatter.js';
 
 export const windowFunctionTests: TestSuite = {
     name: 'Window Functions',
@@ -33,6 +34,24 @@ export const windowFunctionTests: TestSuite = {
             name: 'Window in CTE stays inline when under 140',
             input: 'with cte as (select lead(x) over (partition by very_long_name_a, very_long_name_b, very_long_name_c order by sort_col) from t) select * from cte',
             expected: 'WITH cte AS (\n    SELECT LEAD(x) OVER (PARTITION BY very_long_name_a, very_long_name_b, very_long_name_c ORDER BY sort_col)\n    FROM t\n)\nSELECT * FROM cte',
+        },
+        {
+            name: 'OVER with nested CAST that expands - idempotency check',
+            // This test verifies idempotency: OVER should expand on first pass if nested CAST would expand
+            // Pattern from real notebook: DENSE_RANK() OVER (ORDER BY REGEXP_EXTRACT_ALL(...), CAST(REGEXP_EXTRACT(...) AS INT))
+            input: 'select dense_rank() over (order by regexp_extract_all(col_name, \'([A-Z]+)\',1),cast(regexp_extract(col_name, \'([0-9]+)\',1) as int)) as rank_col from t',
+            expected: 'SELECT DENSE_RANK() OVER (\n        ORDER BY REGEXP_EXTRACT_ALL(col_name, \'([A-Z]+)\', 1), CAST(REGEXP_EXTRACT(col_name, \'([0-9]+)\', 1) AS INT)\n    ) AS rank_col\nFROM t',
+            customValidator: (input: string, expected: string, actual: string) => {
+                // Run formatting twice and verify idempotency
+                const pass2 = formatSql(actual);
+                if (pass2 !== actual) {
+                    return {
+                        passed: false,
+                        message: `Not idempotent!\nPass 1: ${JSON.stringify(actual)}\nPass 2: ${JSON.stringify(pass2)}`
+                    };
+                }
+                return { passed: actual === expected };
+            }
         },
     ],
 };

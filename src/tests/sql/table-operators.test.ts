@@ -3,7 +3,7 @@
  * 
  * Tests for table-transforming operators: PIVOT, UNPIVOT, LATERAL VIEW.
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const pivotTests: TestSuite = {
     name: 'PIVOT',

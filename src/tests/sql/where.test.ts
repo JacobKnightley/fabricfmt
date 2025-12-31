@@ -2,7 +2,7 @@
  * WHERE Clause Tests
  * Note: Tests use multiple columns or multiple conditions to avoid compact query mode
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const whereTests: TestSuite = {
     name: 'WHERE Conditions',

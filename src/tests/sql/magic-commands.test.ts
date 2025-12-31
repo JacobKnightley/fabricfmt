@@ -1,7 +1,7 @@
 /**
  * Tests for magic command handling (Databricks/Fabric notebooks)
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const magicCommandsTests: TestSuite = {
     name: 'Magic Commands',

@@ -1,7 +1,7 @@
 /**
  * DDL Statement Tests
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const ddlTests: TestSuite = {
     name: 'DDL Statements',

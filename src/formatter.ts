@@ -46,7 +46,7 @@ import {
 } from './output-builder.js';
 import { SPARK_BUILTIN_FUNCTIONS } from './generated/builtinFunctions.js';
 import { MAX_LINE_WIDTH } from './constants.js';
-import { hasStatementNoqa, detectNoqaExpansion, type NoqaInfo } from './noqa-detector.js';
+import { hasFormatOff, detectCollapseDirectives, type FormatDirectiveInfo } from './noqa-detector.js';
 import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, ExpandedPivot, PendingComment, MultiArgFunctionInfo, PivotInfo, InListInfo } from './types.js';
 
 // ============================================================================
@@ -80,8 +80,8 @@ export function formatSql(sql: string): string {
         for (const stmt of statements) {
             if (stmt.trim().length === 0) continue;
             
-            // Check for statement-level noqa (bypass formatting entirely)
-            if (hasStatementNoqa(stmt.trim())) {
+            // Check for statement-level fmt:off (bypass formatting entirely)
+            if (hasFormatOff(stmt.trim())) {
                 formattedStatements.push(stmt.trim());
                 continue;
             }
@@ -273,11 +273,11 @@ function formatSingleStatement(sql: string): string {
         const origTokens = new antlr4.CommonTokenStream(origLexer);
         origTokens.fill();
         
-        // Detect noqa:expansion directives
-        const noqaInfo = detectNoqaExpansion(normalizedSql);
+        // Detect fmt:collapse directives
+        const formatDirectives = detectCollapseDirectives(normalizedSql);
         
         // Format tokens
-        const formatted = formatTokens(tokens.tokens, origTokens.tokens, analysis, noqaInfo);
+        const formatted = formatTokens(tokens.tokens, origTokens.tokens, analysis, formatDirectives);
         
         // Restore ${variable} substitutions
         return restoreVariables(formatted, substitutions);
@@ -294,7 +294,7 @@ function formatTokens(
     tokenList: any[], 
     allOrigTokens: any[], 
     analysis: AnalyzerResult,
-    noqaInfo: NoqaInfo
+    formatDirectives: FormatDirectiveInfo
 ): string {
     const builder = new OutputBuilder();
     const state = createInitialState();
@@ -676,16 +676,16 @@ function formatTokens(
         }
         
         // Handle multi-arg function expansion
-        // Check if this token's line has noqa:expansion to suppress expansion
+        // Check if this token's line has fmt:inline to suppress expansion
         const tokenLine = allOrigTokens[i]?.line || 0;
-        const expansionSuppressed = noqaInfo.expansionSuppressedLines.has(tokenLine);
+        const forceCollapse = formatDirectives.collapsedLines.has(tokenLine);
         
-        if (multiArgFuncInfo && !expansionSuppressed && shouldExpandFunction(builder.getColumn(), multiArgFuncInfo)) {
+        if (multiArgFuncInfo && !forceCollapse && shouldExpandFunction(builder.getColumn(), multiArgFuncInfo)) {
             handleFunctionExpansion(builder, expandedFuncs, multiArgFuncInfo, tokenList, i, findNextNonWsTokenIndex, analysis, state);
         }
         
-        // Handle window expansion
-        if (windowDefInfo && !expansionSuppressed && shouldExpandWindow(builder.getColumn(), windowDefInfo)) {
+        // Handle window expansion (pass multiArgFunctionInfo to check nested function expansion)
+        if (windowDefInfo && !forceCollapse && shouldExpandWindow(builder.getColumn(), windowDefInfo, analysis.multiArgFunctionInfo)) {
             currentExpandedWindow = {
                 closeParenIndex: windowDefInfo.closeParenIndex,
                 orderByTokenIndex: windowDefInfo.orderByTokenIndex,
@@ -698,7 +698,7 @@ function formatTokens(
         }
         
         // Handle PIVOT/UNPIVOT expansion
-        if (pivotInfoLookup && !expansionSuppressed && shouldExpandPivot(builder.getColumn(), pivotInfoLookup)) {
+        if (pivotInfoLookup && !forceCollapse && shouldExpandPivot(builder.getColumn(), pivotInfoLookup)) {
             currentExpandedPivot = {
                 closeParenIndex: pivotInfoLookup.closeParenIndex,
                 aggregateCommaIndices: new Set(pivotInfoLookup.aggregateCommaIndices),
@@ -1111,11 +1111,12 @@ function determineNewlineAndIndent(
     }
     
     // Expanded window handling
-    if (isExpandedWindowOrderBy && currentExpandedWindow) {
+    // Skip if we just output a window expansion newline (don't double-newline)
+    if (isExpandedWindowOrderBy && currentExpandedWindow && !state.justOutputWindowNewline) {
         needsNewline = true;
         indent = ' '.repeat(indentCalc.getWindowContentIndent(currentExpandedWindow.baseDepth));
     }
-    if (isExpandedWindowFrame && currentExpandedWindow) {
+    if (isExpandedWindowFrame && currentExpandedWindow && !state.justOutputWindowNewline) {
         needsNewline = true;
         indent = ' '.repeat(indentCalc.getWindowContentIndent(currentExpandedWindow.baseDepth));
     }

@@ -4,9 +4,9 @@
  * Supports Python (.py), Scala (.scala), and R (.r) notebooks
  */
 
-import { TestSuite, TestCase } from './framework.js';
-import { extractMagicSqlCells, formatFabricNotebook } from '../magic-sql-extractor.js';
-import { formatSql } from '../formatter.js';
+import { TestSuite, TestCase } from '../framework.js';
+import { extractMagicSqlCells, formatFabricNotebook } from '../../magic-sql-extractor.js';
+import { formatSql } from '../../formatter.js';
 
 // Helper: create a test that uses formatFabricNotebook
 function fabricTest(name: string, input: string, expected: string): TestCase {

@@ -1,6 +1,6 @@
 # Spark SQL Style Guide
 
-**sparkfmt** is an opinionated formatter with zero configuration. There are no options, flags, or config files to tweak — every Spark SQL file formats exactly the same way, every time.
+**fabricfmt** is an opinionated formatter with zero configuration. There are no options, flags, or config files to tweak — every Spark SQL file formats exactly the same way, every time.
 
 This guide explains *what* the formatter does so you know what to expect.
 
@@ -174,17 +174,17 @@ SELECT COALESCE(
 
 ## Escape Hatches
 
-### Skip formatting entirely: `noqa`
+### Skip formatting entirely: `fmt: off`
 
 ```sql
--- noqa
+-- fmt: off
 select   x,y,z   from   t   -- Preserved exactly as written
 ```
 
-### Keep long lines from expanding: `noqa:expansion`
+### Keep long lines from expanding: `fmt: inline`
 
 ```sql
-SELECT COALESCE(a, b, c, d, e, f, g, h, i, j) -- noqa:expansion
+SELECT COALESCE(a, b, c, d, e, f, g, h, i, j) -- fmt: inline
 FROM t
 ```
 

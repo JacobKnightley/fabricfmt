@@ -2,7 +2,7 @@
  * Comment and Hint Tests
  * Note: Tests use multiple columns to avoid compact query mode
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const commentTests: TestSuite = {
     name: 'Comments',

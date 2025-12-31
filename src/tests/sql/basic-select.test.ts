@@ -1,7 +1,7 @@
 /**
  * Basic SELECT Tests
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const basicSelectTests: TestSuite = {
     name: 'Basic SELECT',

@@ -1,7 +1,7 @@
 /**
  * Tests for semicolon handling (statement separator)
  */
-import { TestSuite } from './framework.js';
+import { TestSuite } from '../framework.js';
 
 export const semicolonTests: TestSuite = {
     name: 'Semicolon Statement Separator',

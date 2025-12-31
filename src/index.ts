@@ -1,20 +1,95 @@
 /**
- * Main export for sparkfmt-ts
- * 100% Grammar-Driven - No hardcoded lists
+ * sparkfmt - Spark SQL & Python Formatter
+ * 
+ * A unified formatter for Spark SQL and Python code, designed for
+ * Microsoft Fabric notebooks and CI/CD pipelines.
  * 
  * Architecture:
- * - formatter.ts: Main entry point and orchestration
- * - types.ts: TypeScript interfaces
- * - token-utils.ts: Grammar-derived token detection
- * - parse-tree-analyzer.ts: AST visitor that collects formatting context
- * - formatting-context.ts: State management during formatting
- * - output-builder.ts: Output construction with column tracking
+ * - formatters/: Language-specific formatters (SQL, Python, extensible to others)
+ * - formatter.ts: Core SQL formatting (ANTLR grammar-driven)
+ * - notebook-formatter.ts: Fabric notebook handling
+ * - config.ts: Configuration loading (ruff.toml, pyproject.toml)
  */
 
-// Public API
+// ============================================================================
+// SQL Formatter (Core API)
+// ============================================================================
+
 export { formatSql, needsFormatting } from './formatter.js';
 
-// Types (for library consumers who want type safety)
+// ============================================================================
+// Language Formatters (Extensible)
+// ============================================================================
+
+export { 
+    // Registry
+    getFormatterRegistry,
+    detectLanguage,
+    
+    // SQL
+    SqlFormatter,
+    getSqlFormatter,
+    isSqlCode,
+    
+    // Python
+    PythonFormatter,
+    getPythonFormatter,
+    isPythonCode,
+    
+    // Types
+    type LanguageFormatter,
+    type FormatterOptions,
+    type FormatResult,
+    type FormatterConfig,
+    type FormatterRegistry,
+} from './formatters/index.js';
+
+// ============================================================================
+// Notebook Formatter
+// ============================================================================
+
+export {
+    // New API
+    parseNotebook,
+    formatNotebook,
+    type NotebookCell,
+    type FabricNotebook,
+    type FormatStats,
+    
+    // Legacy API (deprecated but maintained for compatibility)
+    extractMagicSqlCells,
+    formatFabricNotebook,
+    type MagicSqlCell,
+    type MagicSqlFile,
+} from './notebook-formatter.js';
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+export {
+    loadRuffConfig,
+    toRuffWasmConfig,
+    DEFAULT_RUFF_CONFIG,
+    type RuffConfig,
+    type RuffFormatConfig,
+} from './config.js';
+
+// ============================================================================
+// Format Directives
+// ============================================================================
+
+export { 
+    hasFormatOff, 
+    detectCollapseDirectives, 
+    hasCollapseDirective, 
+    type FormatDirectiveInfo 
+} from './noqa-detector.js';
+
+// ============================================================================
+// Types (for library consumers)
+// ============================================================================
+
 export type { 
     AnalyzerResult,
     FormattingState,
@@ -25,14 +100,3 @@ export type {
     ExpandedFunction,
     ExpandedWindow
 } from './types.js';
-
-// Noqa utilities (for library consumers who want to detect noqa directives)
-export { hasStatementNoqa, detectNoqaExpansion, isExpansionSuppressed, type NoqaInfo } from './noqa-detector.js';
-
-// Magic SQL extractor (for Fabric notebooks saved as .py, .scala, .r files)
-export { 
-    extractMagicSqlCells, 
-    formatFabricNotebook,
-    type MagicSqlCell,
-    type MagicSqlFile
-} from './magic-sql-extractor.js';
