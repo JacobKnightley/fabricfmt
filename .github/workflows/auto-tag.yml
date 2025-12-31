@@ -1,0 +1,45 @@
+name: Auto-tag on version bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/core/package.json'
+      - 'packages/chromium/package.json'
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need previous commit to detect changes
+
+      - name: Detect version changes and create tags
+        run: |
+          # Get previous and current versions for core
+          CORE_PREV=$(git show HEAD~1:packages/core/package.json 2>/dev/null | jq -r '.version' || echo "")
+          CORE_CURR=$(jq -r '.version' packages/core/package.json)
+          
+          # Get previous and current versions for chromium
+          CHROMIUM_PREV=$(git show HEAD~1:packages/chromium/package.json 2>/dev/null | jq -r '.version' || echo "")
+          CHROMIUM_CURR=$(jq -r '.version' packages/chromium/package.json)
+          
+          echo "Core: $CORE_PREV → $CORE_CURR"
+          echo "Chromium: $CHROMIUM_PREV → $CHROMIUM_CURR"
+          
+          # Create tags for changed versions
+          if [ "$CORE_PREV" != "$CORE_CURR" ] && [ -n "$CORE_CURR" ]; then
+            echo "Creating tag core@$CORE_CURR"
+            git tag "core@$CORE_CURR"
+            git push origin "core@$CORE_CURR"
+          fi
+          
+          if [ "$CHROMIUM_PREV" != "$CHROMIUM_CURR" ] && [ -n "$CHROMIUM_CURR" ]; then
+            echo "Creating tag chromium@$CHROMIUM_CURR"
+            git tag "chromium@$CHROMIUM_CURR"
+            git push origin "chromium@$CHROMIUM_CURR"
+          fi

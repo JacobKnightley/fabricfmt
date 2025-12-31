@@ -1,0 +1,43 @@
+name: Release Chromium Extension
+
+on:
+  push:
+    tags:
+      - 'chromium@*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build extension
+        run: npm run build:chromium
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#chromium@}" >> $GITHUB_OUTPUT
+
+      - name: Create extension zip
+        run: |
+          cd packages/chromium
+          zip -r ../../fabricfmt-chromium-${{ steps.version.outputs.version }}.zip dist manifest.json README.md PRIVACY.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Chromium Extension v${{ steps.version.outputs.version }}
+          files: fabricfmt-chromium-${{ steps.version.outputs.version }}.zip
+          generate_release_notes: true

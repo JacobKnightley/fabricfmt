@@ -1,0 +1,63 @@
+{
+  "name": "@jacobknightley/fabricfmt",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A fast, opinionated formatter for Microsoft Fabric notebooks with Spark SQL and Python support",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "bin": {
+    "fabfmt": "dist/cli.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/tests/**",
+    "README.md"
+  ],
+  "keywords": [
+    "fabric",
+    "microsoft-fabric",
+    "spark",
+    "sql",
+    "python",
+    "pyspark",
+    "formatter",
+    "notebook",
+    "delta-lake",
+    "antlr",
+    "ruff"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jacobknightley/fabricfmt.git"
+  },
+  "homepage": "https://github.com/jacobknightley/fabricfmt#readme",
+  "bugs": {
+    "url": "https://github.com/jacobknightley/fabricfmt/issues"
+  },
+  "author": "Jacob Knightley",
+  "license": "MIT",
+  "scripts": {
+    "build:antlr": "python .build/build_antlr_js.py",
+    "build:ts": "tsc",
+    "build:readme": "node -e \"require('fs').copyFileSync('../../README.md', './README.md')\"",
+    "build": "npm run build:readme && npm run build:antlr && npm run build:ts",
+    "test": "node dist/tests/index.js",
+    "test:verbose": "node dist/tests/index.js --verbose",
+    "format": "node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@astral-sh/ruff-wasm-web": "^0.14.10",
+    "antlr4": "^4.13.2"
+  }
+}

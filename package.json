@@ -1,0 +1,15 @@
+{
+  "name": "fabricfmt",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @jacobknightley/fabricfmt && npm run build -w fabricfmt-chromium",
+    "build:core": "npm run build -w @jacobknightley/fabricfmt",
+    "build:chromium": "npm run build -w fabricfmt-chromium",
+    "test": "npm run test -w @jacobknightley/fabricfmt",
+    "package:chromium": "npm run package -w fabricfmt-chromium",
+    "release": "node scripts/release.js"
+  }
+}
