@@ -12,6 +12,35 @@ import { RUFF_WASM_CONFIG } from './config.js';
 let ruffModule: typeof import('@astral-sh/ruff-wasm-web') | null = null;
 let workspace: InstanceType<typeof import('@astral-sh/ruff-wasm-web').Workspace> | null = null;
 
+/**
+ * Detect if we're running in Node.js
+ */
+function isNodeEnvironment(): boolean {
+    return typeof process !== 'undefined' && 
+           process.versions != null && 
+           process.versions.node != null;
+}
+
+/**
+ * Find the WASM file path relative to the ruff-wasm-web package in Node.js
+ */
+async function findWasmFileForNode(): Promise<Uint8Array> {
+    // Dynamic import of Node.js modules
+    const { createRequire } = await import('module');
+    const { fileURLToPath } = await import('url');
+    const { dirname, join } = await import('path');
+    const { readFile } = await import('fs/promises');
+    
+    // Get the path to ruff-wasm-web package
+    // Use createRequire since import.meta.resolve may not be available
+    const require = createRequire(import.meta.url);
+    const ruffWasmPath = require.resolve('@astral-sh/ruff-wasm-web');
+    const ruffWasmDir = dirname(ruffWasmPath);
+    const wasmPath = join(ruffWasmDir, 'ruff_wasm_bg.wasm');
+    
+    return readFile(wasmPath);
+}
+
 /** Options for initializing the WASM module */
 export interface WasmInitOptions {
     /** URL to the .wasm file (for browser environments) */
@@ -64,9 +93,12 @@ export class PythonFormatter implements LanguageFormatter {
             } else if (this.wasmOptions?.wasmUrl) {
                 // Use async initialization with provided URL
                 await ruffModule.default({ module_or_path: this.wasmOptions.wasmUrl });
+            } else if (isNodeEnvironment()) {
+                // Node.js: Load WASM file from disk
+                const wasmBinary = await findWasmFileForNode();
+                ruffModule.initSync({ module: wasmBinary });
             } else {
-                // Default: let ruff-wasm-web use import.meta.url to find the WASM file
-                // This works in Node.js and ESM environments but may fail in bundled IIFE
+                // Browser: let ruff-wasm-web use import.meta.url to find the WASM file
                 await ruffModule.default();
             }
             
