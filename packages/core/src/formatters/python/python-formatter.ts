@@ -12,6 +12,60 @@ import { RUFF_WASM_CONFIG } from './config.js';
 let ruffModule: typeof import('@astral-sh/ruff-wasm-web') | null = null;
 let workspace: InstanceType<typeof import('@astral-sh/ruff-wasm-web').Workspace> | null = null;
 
+/**
+ * Detect if we're running in Node.js
+ */
+function isNodeEnvironment(): boolean {
+    return typeof process !== 'undefined' && 
+           process.versions != null && 
+           process.versions.node != null;
+}
+
+/**
+ * Find the WASM file path relative to the ruff-wasm-web package in Node.js.
+ * Uses indirect dynamic imports to avoid bundler static analysis.
+ */
+async function findWasmFileForNode(): Promise<Uint8Array> {
+    // Use Function constructor to create dynamic import that bundlers can't statically analyze
+    // This is intentional - these modules only exist in Node.js, not in browsers
+    const dynamicImport = new Function('specifier', 'return import(specifier)');
+    
+    const { createRequire } = await dynamicImport('module');
+    const { dirname, join } = await dynamicImport('path');
+    const { readFile } = await dynamicImport('fs/promises');
+    
+    // Get the path to ruff-wasm-web package
+    // We need import.meta.url to create a require function
+    // Use a fallback for bundled environments (though this path shouldn't be hit in browsers)
+    let ruffWasmDir: string;
+    try {
+        const require = createRequire(import.meta.url);
+        const ruffWasmPath = require.resolve('@astral-sh/ruff-wasm-web');
+        ruffWasmDir = dirname(ruffWasmPath);
+    } catch {
+        // Fallback: try to find it via node_modules traversal
+        const { fileURLToPath } = await dynamicImport('url');
+        const currentDir = dirname(fileURLToPath(import.meta.url));
+        // Walk up to find node_modules
+        let searchDir = currentDir;
+        const { existsSync } = await dynamicImport('fs');
+        while (searchDir !== dirname(searchDir)) {
+            const candidate = join(searchDir, 'node_modules', '@astral-sh', 'ruff-wasm-web');
+            if (existsSync(candidate)) {
+                ruffWasmDir = candidate;
+                break;
+            }
+            searchDir = dirname(searchDir);
+        }
+        if (!ruffWasmDir!) {
+            throw new Error('Could not locate @astral-sh/ruff-wasm-web package');
+        }
+    }
+    
+    const wasmPath = join(ruffWasmDir, 'ruff_wasm_bg.wasm');
+    return readFile(wasmPath);
+}
+
 /** Options for initializing the WASM module */
 export interface WasmInitOptions {
     /** URL to the .wasm file (for browser environments) */
@@ -64,9 +118,12 @@ export class PythonFormatter implements LanguageFormatter {
             } else if (this.wasmOptions?.wasmUrl) {
                 // Use async initialization with provided URL
                 await ruffModule.default({ module_or_path: this.wasmOptions.wasmUrl });
+            } else if (isNodeEnvironment()) {
+                // Node.js: Load WASM file from disk
+                const wasmBinary = await findWasmFileForNode();
+                ruffModule.initSync({ module: wasmBinary });
             } else {
-                // Default: let ruff-wasm-web use import.meta.url to find the WASM file
-                // This works in Node.js and ESM environments but may fail in bundled IIFE
+                // Browser: let ruff-wasm-web use import.meta.url to find the WASM file
                 await ruffModule.default();
             }
             

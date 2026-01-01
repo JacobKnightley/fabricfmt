@@ -859,15 +859,16 @@ async function init() {
   let checkAttempts = 0;
   const maxAttempts = 10;
   
-  const checkForEditors = async () => {
+  const checkForEditors = () => {
     checkAttempts++;
     const editorCount = document.querySelectorAll('.monaco-editor').length;
     
     if (editorCount > 0) {
       log.debug('Found', editorCount, 'editors, waiting for status bar...');
       // Use dedicated function to wait for status bar with retries
-      await waitForStatusBarAndInject();
-      log.info('Ready - found', editorCount, 'editor(s)');
+      waitForStatusBarAndInject().then(() => {
+        log.info('Ready - found', editorCount, 'editor(s)');
+      });
     } else if (checkAttempts < maxAttempts) {
       setTimeout(checkForEditors, 1000);
     } else {

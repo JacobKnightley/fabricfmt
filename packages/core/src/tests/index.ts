@@ -4,6 +4,7 @@
  * Runs all test suites and reports results.
  */
 import { formatSql } from '../formatters/sparksql/index.js';
+import { formatCell, initializePythonFormatter } from '../cell-formatter.js';
 import { runSuite, printSuiteResult, printSummary, SuiteResult } from './framework.js';
 
 // Import all Spark SQL test suites
@@ -28,8 +29,15 @@ import { compactQueryTests } from './sparksql/compact-query.test.js';
 import { magicSqlSuite, runMagicSqlSuite } from './sparksql/magic-sql.test.js';
 import { deltaLakeTests } from './sparksql/delta-lake.test.js';
 
-// All test suites in order
-const allSuites = [
+// Import Python test suites
+import { basicFormattingTests, magicCommandTests } from './python/index.js';
+import { runInitializationTests, runNotebookIntegrationTests } from './python/index.js';
+
+// Import integration test suites
+import { runNotebookParsingTests, runCliTests } from './integration/index.js';
+
+// All Spark SQL test suites in order
+const sparkSqlSuites = [
     // Core SELECT
     basicSelectTests,
     tablesampleTests,
@@ -97,7 +105,13 @@ const allSuites = [
     deltaLakeTests,
 ];
 
-function main(): void {
+// Python test suites (sync tests)
+const pythonSyncSuites = [
+    basicFormattingTests,
+    magicCommandTests,
+];
+
+async function main(): Promise<void> {
     console.log('='.repeat(50));
     console.log('Spark SQL Formatter Test Suite');
     console.log('='.repeat(50));
@@ -105,7 +119,8 @@ function main(): void {
     const results: SuiteResult[] = [];
     const verbose = process.argv.includes('--verbose') || process.argv.includes('-v');
 
-    for (const suite of allSuites) {
+    // Run Spark SQL tests (sync)
+    for (const suite of sparkSqlSuites) {
         const result = runSuite(suite, formatSql);
         results.push(result);
         printSuiteResult(result, verbose);
@@ -121,6 +136,48 @@ function main(): void {
     };
     results.push(magicSuiteResult);
     printSuiteResult(magicSuiteResult, verbose);
+
+    // Python tests header
+    console.log('\n' + '='.repeat(50));
+    console.log('Python Formatter Test Suite');
+    console.log('='.repeat(50));
+
+    // Initialize Python formatter for tests
+    await initializePythonFormatter();
+
+    // Run Python sync tests
+    for (const suite of pythonSyncSuites) {
+        const result = runSuite(suite, (code) => {
+            const res = formatCell(code, 'python');
+            return res.formatted;
+        });
+        results.push(result);
+        printSuiteResult(result, verbose);
+    }
+
+    // Run Python async tests
+    const initResult = await runInitializationTests();
+    results.push(initResult);
+    printSuiteResult(initResult, verbose);
+
+    const notebookResult = await runNotebookIntegrationTests();
+    results.push(notebookResult);
+    printSuiteResult(notebookResult, verbose);
+
+    // Integration tests header
+    console.log('\n' + '='.repeat(50));
+    console.log('Integration Test Suite');
+    console.log('='.repeat(50));
+
+    // Run notebook parsing tests
+    const parsingResult = await runNotebookParsingTests();
+    results.push(parsingResult);
+    printSuiteResult(parsingResult, verbose);
+
+    // Run CLI tests
+    const cliResult = await runCliTests();
+    results.push(cliResult);
+    printSuiteResult(cliResult, verbose);
 
     const { totalPassed, totalFailed } = printSummary(results);
 
