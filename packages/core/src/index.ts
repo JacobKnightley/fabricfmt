@@ -63,6 +63,7 @@ export {
 export {
     parseNotebook,
     formatNotebook,
+    NotebookStructureError,
     type NotebookCell,
     type FabricNotebook,
     type FormatStats,

@@ -50,13 +50,11 @@ Format Fabric notebooks directly in your browser with a single click.
 
 1. Download `fabric-format-chromium.zip` from the [latest release](https://github.com/jacobknightley/fabric-format/releases)
 2. Extract the zip file
-3. Open your browser's extension page:
-   - **Chrome:** `chrome://extensions`
-   - **Edge:** `edge://extensions`
-4. Enable **Developer mode** (toggle in top-right)
-5. Click **Load unpacked** and select the extracted folder
+3. Load the unpacked extension in your browser:
+   - **Chrome:** [Install an unpacked extension](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked)
+   - **Edge:** [Sideload an extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/getting-started/extension-sideloading)
 
-> **Note:** Plan to eventually support directly in Chrome and Edge extension stores.
+> **Note:** Plan to eventually publish to the Chrome Web Store and Edge Add-ons.
 
 ### Usage
 

@@ -139,13 +139,84 @@ export interface FormatStats {
     errors: string[];
 }
 
-// ============================================================================
-// INTERNAL UTILITIES
-// ============================================================================
+/** Error thrown when a notebook cell has invalid structure */
+export class NotebookStructureError extends Error {
+    constructor(
+        message: string,
+        public readonly cellIndex: number,
+        public readonly lineNumber: number,
+        public readonly metadataLanguage: string,
+        public readonly fileDefaultLanguage: string
+    ) {
+        super(message);
+        this.name = 'NotebookStructureError';
+    }
+}
 
 // ============================================================================
 // INTERNAL UTILITIES
 // ============================================================================
+
+/**
+ * Get the valid raw (uncommented) languages for a file type.
+ * Raw cells must match the file's native language - other languages must use MAGIC prefix.
+ */
+function getValidRawLanguages(defaultLanguage: string): Set<string> {
+    switch (defaultLanguage) {
+        case 'python':
+            // Python files: raw cells can be python or pyspark
+            return new Set(['python', 'pyspark']);
+        case 'sparksql':
+            // SQL files: raw cells must be sparksql
+            return new Set(['sparksql']);
+        case 'scala':
+            // Scala files: raw cells must be scala
+            return new Set(['scala']);
+        case 'r':
+            // R files: raw cells must be r
+            return new Set(['r']);
+        default:
+            return new Set([defaultLanguage]);
+    }
+}
+
+/**
+ * Validate that a raw cell's metadata language matches the file type.
+ * Throws NotebookStructureError if there's a mismatch.
+ */
+function validateRawCellLanguage(
+    metadataLanguage: string | null,
+    isRawCell: boolean,
+    config: LanguageConfig,
+    cellIndex: number,
+    lineNumber: number
+): void {
+    if (!isRawCell || !metadataLanguage) {
+        // MAGIC cells can have any language, and cells without metadata are fine
+        return;
+    }
+    
+    const validRawLanguages = getValidRawLanguages(config.defaultLanguage);
+    const normalizedLanguage = metadataLanguage.toLowerCase();
+    
+    if (!validRawLanguages.has(normalizedLanguage)) {
+        const fileType = config.defaultLanguage === 'python' ? '.py' : 
+                        config.defaultLanguage === 'sparksql' ? '.sql' :
+                        config.defaultLanguage === 'scala' ? '.scala' :
+                        config.defaultLanguage === 'r' ? '.r' : 
+                        `.${config.defaultLanguage}`;
+        
+        throw new NotebookStructureError(
+            `Invalid notebook structure: Cell ${cellIndex + 1} (line ${lineNumber + 1}) has metadata language "${metadataLanguage}" ` +
+            `but is not wrapped with MAGIC prefix. In ${fileType} files, only ${config.defaultLanguage} cells can be raw/uncommented. ` +
+            `Other languages (like ${metadataLanguage}) must use the "${config.magicPrefix}%%" prefix.`,
+            cellIndex,
+            lineNumber,
+            metadataLanguage,
+            config.defaultLanguage
+        );
+    }
+}
 
 /**
  * Line ending constant - this library standardizes on LF.
@@ -388,6 +459,10 @@ export function parseNotebook(content: string, fileExtension: string): FabricNot
                 const isMagicCell = originalLines.some(l => 
                     l.trim().startsWith(config.magicPrefix.trim())
                 );
+                
+                // Validate that raw cells have a language matching the file type
+                const cellIndex = result.cells.length;
+                validateRawCellLanguage(metadataLanguage, !isMagicCell, config, cellIndex, j);
                 
                 // Extract content
                 let content: string;
