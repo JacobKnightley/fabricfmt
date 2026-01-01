@@ -26,7 +26,7 @@ import { magicCommandsTests } from './sparksql/magic-commands.test.js';
 import { semicolonTests } from './sparksql/semicolon.test.js';
 import { fmtOffTests, fmtInlineTests } from './sparksql/format-directives.test.js';
 import { compactQueryTests } from './sparksql/compact-query.test.js';
-import { magicSqlSuite, runMagicSqlSuite } from './sparksql/magic-sql.test.js';
+import { magicSqlSuite, runMagicSqlSuite, runValidationSuite, validationSuite } from './sparksql/magic-sql.test.js';
 import { deltaLakeTests } from './sparksql/delta-lake.test.js';
 
 // Import Python test suites
@@ -136,6 +136,21 @@ async function main(): Promise<void> {
     };
     results.push(magicSuiteResult);
     printSuiteResult(magicSuiteResult, verbose);
+
+    // Run validation suite with its custom runner
+    const validationResult = runValidationSuite();
+    const validationSuiteResult: SuiteResult = {
+        suiteName: validationSuite.name,
+        passed: validationResult.passed,
+        failed: validationResult.failed,
+        results: validationResult.results.map(r => ({
+            name: r.name,
+            passed: r.passed,
+            got: r.error,
+        })),
+    };
+    results.push(validationSuiteResult);
+    printSuiteResult(validationSuiteResult, verbose);
 
     // Python tests header
     console.log('\n' + '='.repeat(50));

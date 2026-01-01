@@ -5,7 +5,7 @@
  */
 
 import { TestSuite, TestCase } from '../framework.js';
-import { parseNotebook } from '../../notebook-formatter.js';
+import { parseNotebook, NotebookStructureError } from '../../notebook-formatter.js';
 import { formatSql } from '../../formatters/sparksql/index.js';
 
 /**
@@ -493,6 +493,250 @@ export function runMagicSqlSuite(): { passed: number; failed: number; results: A
         expected: tc.expected,
         got: result,
       });
+    }
+  }
+
+  return { passed, failed, results };
+}
+
+// ============================================================================
+// Validation Tests - Detect Invalid Notebook Structure
+// ============================================================================
+
+interface ValidationTestCase {
+  name: string;
+  content: string;
+  fileExtension: string;
+  shouldThrow: boolean;
+  expectedErrorContains?: string;
+}
+
+const validationTests: ValidationTestCase[] = [
+  {
+    name: 'py file with raw Python cell is valid',
+    content: `# Fabric notebook source
+
+# CELL ********************
+
+print("hello")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }`,
+    fileExtension: '.py',
+    shouldThrow: false,
+  },
+  {
+    name: 'py file with MAGIC SQL cell is valid',
+    content: `# Fabric notebook source
+
+# CELL ********************
+
+# MAGIC %%sql
+# MAGIC SELECT * FROM table
+
+# METADATA ********************
+
+# META {
+# META   "language": "sparksql",
+# META   "language_group": "synapse_pyspark"
+# META }`,
+    fileExtension: '.py',
+    shouldThrow: false,
+  },
+  {
+    name: 'py file with raw SQL cell (metadata says sparksql but no MAGIC) throws error',
+    content: `# Fabric notebook source
+
+# CELL ********************
+
+# create temp views
+spark.read.format("parquet").load("path").createOrReplaceTempView("vwService")
+
+# METADATA ********************
+
+# META {
+# META   "language": "sparksql",
+# META   "language_group": "synapse_pyspark"
+# META }`,
+    fileExtension: '.py',
+    shouldThrow: true,
+    expectedErrorContains: 'metadata language "sparksql"',
+  },
+  {
+    name: 'py file with raw Scala cell (metadata says scala but no MAGIC) throws error',
+    content: `# Fabric notebook source
+
+# CELL ********************
+
+val x = 1
+
+# METADATA ********************
+
+# META {
+# META   "language": "scala",
+# META   "language_group": "synapse_pyspark"
+# META }`,
+    fileExtension: '.py',
+    shouldThrow: true,
+    expectedErrorContains: 'metadata language "scala"',
+  },
+  {
+    name: 'sql file with raw SQL cell is valid',
+    content: `-- Fabric notebook source
+
+-- CELL ********************
+
+SELECT * FROM table
+
+-- METADATA ********************
+
+-- META {
+-- META   "language": "sparksql",
+-- META   "language_group": "synapse_pyspark"
+-- META }`,
+    fileExtension: '.sql',
+    shouldThrow: false,
+  },
+  {
+    name: 'sql file with MAGIC Python cell is valid',
+    content: `-- Fabric notebook source
+
+-- CELL ********************
+
+-- MAGIC %%python
+-- MAGIC print("hello")
+
+-- METADATA ********************
+
+-- META {
+-- META   "language": "python",
+-- META   "language_group": "synapse_pyspark"
+-- META }`,
+    fileExtension: '.sql',
+    shouldThrow: false,
+  },
+  {
+    name: 'sql file with raw Python cell (metadata says python but no MAGIC) throws error',
+    content: `-- Fabric notebook source
+
+-- CELL ********************
+
+print("hello")
+
+-- METADATA ********************
+
+-- META {
+-- META   "language": "python",
+-- META   "language_group": "synapse_pyspark"
+-- META }`,
+    fileExtension: '.sql',
+    shouldThrow: true,
+    expectedErrorContains: 'metadata language "python"',
+  },
+  {
+    name: 'scala file with raw Scala cell is valid',
+    content: `// Fabric notebook source
+
+// CELL ********************
+
+val x = 1
+
+// METADATA ********************
+
+// META {
+// META   "language": "scala",
+// META   "language_group": "synapse_pyspark"
+// META }`,
+    fileExtension: '.scala',
+    shouldThrow: false,
+  },
+  {
+    name: 'scala file with raw SQL cell (metadata says sparksql but no MAGIC) throws error',
+    content: `// Fabric notebook source
+
+// CELL ********************
+
+SELECT * FROM table
+
+// METADATA ********************
+
+// META {
+// META   "language": "sparksql",
+// META   "language_group": "synapse_pyspark"
+// META }`,
+    fileExtension: '.scala',
+    shouldThrow: true,
+    expectedErrorContains: 'metadata language "sparksql"',
+  },
+];
+
+export const validationSuite: TestSuite = {
+  name: 'Notebook Structure Validation',
+  tests: [], // Empty - we use a custom runner below
+};
+
+/**
+ * Run validation tests that check for proper error throwing.
+ */
+export function runValidationSuite(): { passed: number; failed: number; results: Array<{ name: string; passed: boolean; error?: string }> } {
+  const results: Array<{ name: string; passed: boolean; error?: string }> = [];
+  let passed = 0;
+  let failed = 0;
+
+  for (const tc of validationTests) {
+    try {
+      parseNotebook(tc.content, tc.fileExtension);
+      
+      if (tc.shouldThrow) {
+        // Expected an error but didn't get one
+        failed++;
+        results.push({
+          name: tc.name,
+          passed: false,
+          error: 'Expected NotebookStructureError but no error was thrown',
+        });
+      } else {
+        // No error expected and none thrown - success
+        passed++;
+        results.push({ name: tc.name, passed: true });
+      }
+    } catch (err) {
+      if (tc.shouldThrow) {
+        // Check if it's the right type of error
+        if (err instanceof NotebookStructureError) {
+          // Check if error message contains expected text
+          if (tc.expectedErrorContains && !err.message.includes(tc.expectedErrorContains)) {
+            failed++;
+            results.push({
+              name: tc.name,
+              passed: false,
+              error: `Error message doesn't contain "${tc.expectedErrorContains}": ${err.message}`,
+            });
+          } else {
+            passed++;
+            results.push({ name: tc.name, passed: true });
+          }
+        } else {
+          failed++;
+          results.push({
+            name: tc.name,
+            passed: false,
+            error: `Expected NotebookStructureError but got ${(err as Error).constructor.name}: ${(err as Error).message}`,
+          });
+        }
+      } else {
+        // Unexpected error
+        failed++;
+        results.push({
+          name: tc.name,
+          passed: false,
+          error: `Unexpected error: ${(err as Error).message}`,
+        });
+      }
     }
   }
 
