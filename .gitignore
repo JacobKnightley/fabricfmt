@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+
+# TypeScript build output
+dist/
+
+# Generated README (copied from root during build)
+packages/core/README.md
+packages/chromium/README.md
+
+# ANTLR generated files (rebuilt from grammar at build time)
+packages/core/src/formatters/sparksql/generated/
+
+# ANTLR jar (downloaded at build time)
+packages/core/.build/antlr4.jar
+
+# Grammar files (downloaded from Apache Spark at build time)
+packages/core/grammar/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Example files
+example.sql
+*_formatted.sql
+
+# Debug files
+debug-*.mjs
+debug-*.js
+
+# Rust build artifacts (experimental)
+crates/
+target/
+
+package-lock.json

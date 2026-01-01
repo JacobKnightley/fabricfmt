@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Get versions
+        id: versions
+        run: |
+          echo "release=$(cat VERSION)" >> $GITHUB_OUTPUT
+          echo "core=$(node -p 'require("./packages/core/package.json").version')" >> $GITHUB_OUTPUT
+          echo "chromium=$(node -p 'require("./packages/chromium/package.json").version')" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Create release tag
+        run: |
+          git tag "v${{ steps.versions.outputs.release }}"
+          git push origin "v${{ steps.versions.outputs.release }}"
+
+      # Core: publish to npm if version doesn't exist
+      - name: Check if core version exists on npm
+        id: core-check
+        run: |
+          if npm view @jacobknightley/fabric-format@${{ steps.versions.outputs.core }} > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish core to npm
+        if: steps.core-check.outputs.exists == 'false'
+        run: npm publish --workspace=packages/core --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Chromium: create GitHub release if doesn't exist
+      - name: Check if chromium release exists
+        id: chromium-check
+        run: |
+          if gh release view "chromium-v${{ steps.versions.outputs.chromium }}" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create extension zip
+        if: steps.chromium-check.outputs.exists == 'false'
+        run: |
+          cd packages/chromium
+          zip -r ../../fabric-format-chromium-${{ steps.versions.outputs.chromium }}.zip dist manifest.json README.md PRIVACY.md
+
+      - name: Create GitHub Release for chromium
+        if: steps.chromium-check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.versions.outputs.release }}
+          name: Chromium Extension v${{ steps.versions.outputs.chromium }}
+          files: fabric-format-chromium-${{ steps.versions.outputs.chromium }}.zip
+          body: |
+            **Chromium Extension v${{ steps.versions.outputs.chromium }}**
+            
+            Release ID: v${{ steps.versions.outputs.release }}
+            Core: v${{ steps.versions.outputs.core }}
+            
+            Download and extract the zip, then load unpacked in Chrome/Edge.

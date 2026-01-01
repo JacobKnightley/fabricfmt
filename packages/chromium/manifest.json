@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Fabric Format",
+  "version": "0.0.1",
+  "description": "Format Python and SparkSQL cells in Microsoft Fabric Notebooks",
+  "host_permissions": [
+    "https://*.fabric.microsoft.com/*",
+    "https://*.powerbi.com/*"
+  ],
+  "action": {
+    "default_title": "Fabric Formatter"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/ruff_wasm_bg.wasm"
+      ],
+      "matches": [
+        "https://*.fabric.microsoft.com/*",
+        "https://*.powerbi.com/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.fabric.microsoft.com/*"
+      ],
+      "include_globs": [
+        "*synapsenotebooks*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.powerbi.com/*"
+      ],
+      "include_globs": [
+        "*pbides.powerbi.com*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

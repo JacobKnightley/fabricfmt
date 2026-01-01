@@ -1,0 +1,15 @@
+{
+  "name": "fabric-format",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @jacobknightley/fabric-format && npm run build -w fabric-format-chromium",
+    "build:core": "npm run build -w @jacobknightley/fabric-format",
+    "build:chromium": "npm run build -w fabric-format-chromium",
+    "test": "npm run test -w @jacobknightley/fabric-format",
+    "package:chromium": "npm run package -w fabric-format-chromium",
+    "release": "node scripts/release.js"
+  }
+}
