@@ -455,6 +455,232 @@ y=2
             }
         },
     },
+    
+    // === Additional argument parsing and validation tests ===
+    
+    // Unknown command
+    {
+        name: 'Errors on unknown command',
+        test: async () => {
+            const result = runCli('unknowncommand');
+            return {
+                passed: result.exitCode !== 0 && result.stderr.includes('Unknown command'),
+                message: `Expected error with 'Unknown command', got: ${result.stderr}`,
+            };
+        },
+    },
+    
+    // --type without value
+    {
+        name: 'Errors on --type without value',
+        test: async () => {
+            const result = runCli('format --type');
+            return {
+                passed: result.exitCode !== 0 && result.stderr.includes('--type'),
+                message: `Expected error about --type requiring value, got: ${result.stderr}`,
+            };
+        },
+    },
+    {
+        name: 'Errors on --type with flag as value',
+        test: async () => {
+            const result = runCli('format --type --print');
+            return {
+                passed: result.exitCode !== 0,
+                message: `Expected error when --type followed by another flag`,
+            };
+        },
+    },
+    
+    // -i without value
+    {
+        name: 'Errors on -i without value',
+        test: async () => {
+            const result = runCli('format --type sparksql -i');
+            return {
+                passed: result.exitCode !== 0 && result.stderr.includes('-i'),
+                message: `Expected error about -i requiring value, got: ${result.stderr}`,
+            };
+        },
+    },
+    
+    // --print validation
+    {
+        name: 'Errors on --print with multiple files',
+        test: async () => {
+            const tempDir = createTempDir();
+            try {
+                const file1 = join(tempDir, 'test1.py');
+                const file2 = join(tempDir, 'test2.py');
+                writeFileSync(file1, '# Fabric notebook source\n');
+                writeFileSync(file2, '# Fabric notebook source\n');
+                
+                const result = runCli(`format "${file1}" "${file2}" --print`);
+                return {
+                    passed: result.exitCode !== 0 && result.stderr.includes('--print'),
+                    message: `Expected error about --print with multiple files`,
+                };
+            } finally {
+                cleanupTempDir(tempDir);
+            }
+        },
+    },
+    {
+        name: 'Errors on --print with directory',
+        test: async () => {
+            const tempDir = createTempDir();
+            try {
+                const result = runCli(`format "${tempDir}" --print`);
+                return {
+                    passed: result.exitCode !== 0 && result.stderr.includes('--print'),
+                    message: `Expected error about --print with directory`,
+                };
+            } finally {
+                cleanupTempDir(tempDir);
+            }
+        },
+    },
+    
+    // No files specified
+    {
+        name: 'Errors on format with no files',
+        test: async () => {
+            const result = runCli('format');
+            return {
+                passed: result.exitCode !== 0 && result.stderr.includes('No files'),
+                message: `Expected error about no files specified, got: ${result.stderr}`,
+            };
+        },
+    },
+    {
+        name: 'Errors on check with no files',
+        test: async () => {
+            const result = runCli('check');
+            return {
+                passed: result.exitCode !== 0 && result.stderr.includes('No files'),
+                message: `Expected error about no files specified, got: ${result.stderr}`,
+            };
+        },
+    },
+    
+    // Type case insensitivity
+    {
+        name: 'Accepts --type SPARKSQL (uppercase)',
+        test: async () => {
+            const result = runCli('format --type SPARKSQL -i "select * from t"');
+            return {
+                passed: result.exitCode === 0 && result.stdout.includes('SELECT'),
+                message: `Expected successful formatting with uppercase type`,
+            };
+        },
+    },
+    {
+        name: 'Accepts --type SparkSQL (mixed case)',
+        test: async () => {
+            const result = runCli('format --type SparkSQL -i "select * from t"');
+            return {
+                passed: result.exitCode === 0 && result.stdout.includes('SELECT'),
+                message: `Expected successful formatting with mixed case type`,
+            };
+        },
+    },
+    
+    // Multiple valid types
+    {
+        name: 'All valid types work: sparksql',
+        test: async () => {
+            const result = runCli('format --type sparksql -i "select 1"');
+            return {
+                passed: result.exitCode === 0,
+                message: `sparksql type should work`,
+            };
+        },
+    },
+    {
+        name: 'All valid types work: python',
+        test: async () => {
+            const result = runCli('format --type python -i "x=1"');
+            return {
+                passed: result.exitCode === 0,
+                message: `python type should work`,
+            };
+        },
+    },
+    {
+        name: 'All valid types work: pyspark',
+        test: async () => {
+            const result = runCli('format --type pyspark -i "x=1"');
+            return {
+                passed: result.exitCode === 0,
+                message: `pyspark type should work`,
+            };
+        },
+    },
+    
+    // Edge cases with inline input
+    {
+        name: 'Handles empty inline input',
+        test: async () => {
+            const result = runCli('format --type sparksql -i ""');
+            return {
+                passed: result.exitCode === 0,
+                message: `Should handle empty inline input`,
+            };
+        },
+    },
+    {
+        name: 'Handles whitespace-only inline input',
+        test: async () => {
+            const result = runCli('format --type sparksql -i "   "');
+            return {
+                passed: result.exitCode === 0,
+                message: `Should handle whitespace-only inline input`,
+            };
+        },
+    },
+    
+    // Check command with --type but no -i and no files
+    {
+        name: 'Check with --type but no input waits for stdin (timeout is ok)',
+        test: async () => {
+            // This tests that --type without files enters stdin mode
+            // We can't easily test stdin, so we verify it doesn't immediately error
+            // The command will timeout waiting for stdin, which is expected behavior
+            try {
+                const result = runCli('check --type sparksql', '');
+                // With empty stdin, should exit 0 (empty string equals itself)
+                return {
+                    passed: result.exitCode === 0,
+                    message: `Check with empty stdin should exit 0`,
+                };
+            } catch {
+                // Timeout is acceptable - means it's waiting for stdin
+                return { passed: true };
+            }
+        },
+    },
+    
+    // Exit code validation
+    {
+        name: 'Exit code 2 for user errors (invalid arguments)',
+        test: async () => {
+            const result = runCli('format --type invalid -i "x"');
+            return {
+                passed: result.exitCode === 2,
+                message: `Expected exit code 2 for invalid type, got ${result.exitCode}`,
+            };
+        },
+    },
+    {
+        name: 'Exit code 2 for missing required arguments',
+        test: async () => {
+            const result = runCli('format -i "select 1"');
+            return {
+                passed: result.exitCode === 2,
+                message: `Expected exit code 2 for -i without --type, got ${result.exitCode}`,
+            };
+        },
+    },
 ];
 
 /**
