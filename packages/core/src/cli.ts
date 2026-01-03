@@ -86,15 +86,19 @@ async function findSupportedFiles(
     let entries: fs.Dirent[];
     try {
       entries = await ctx.readdir(currentDir);
-    } catch (e: any) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied reading directory: ${currentDir}`);
-      } else if (e.code === 'ENOENT') {
+      } else if (error.code === 'ENOENT') {
         ctx.stderr(`Error: Directory not found: ${currentDir}`);
       } else {
-        ctx.stderr(`Error: Cannot read directory ${currentDir}: ${e.message}`);
+        ctx.stderr(
+          `Error: Cannot read directory ${currentDir}: ${error.message}`,
+        );
       }
       ctx.exit(2);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
@@ -153,15 +157,17 @@ async function expandPaths(
     let stat: fs.Stats;
     try {
       stat = await ctx.stat(p);
-    } catch (e: any) {
-      if (e.code === 'ENOENT') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
         ctx.stderr(`Error: File or directory not found: ${p}`);
-      } else if (e.code === 'EACCES' || e.code === 'EPERM') {
+      } else if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied accessing: ${p}`);
       } else {
-        ctx.stderr(`Error: Cannot access ${p}: ${e.message}`);
+        ctx.stderr(`Error: Cannot access ${p}: ${error.message}`);
       }
       ctx.exit(2);
+      return []; // TypeScript: unreachable but makes control flow analysis happy
     }
     if (stat.isDirectory()) {
       files.push(...(await findSupportedFiles(p, ctx)));
@@ -357,6 +363,7 @@ async function cmdFormat(args: string[], ctx: CliContext): Promise<void> {
     if (!type) {
       ctx.stderr('Error: -i requires --type (sparksql, python, or pyspark)');
       ctx.exit(2);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     // Initialize Python formatter if needed
@@ -410,15 +417,17 @@ async function cmdFormat(args: string[], ctx: CliContext): Promise<void> {
     let stat: fs.Stats;
     try {
       stat = await ctx.stat(file);
-    } catch (e: any) {
-      if (e.code === 'ENOENT') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
         ctx.stderr(`Error: File not found: ${file}`);
-      } else if (e.code === 'EACCES' || e.code === 'EPERM') {
+      } else if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied accessing: ${file}`);
       } else {
-        ctx.stderr(`Error: Cannot access ${file}: ${e.message}`);
+        ctx.stderr(`Error: Cannot access ${file}: ${error.message}`);
       }
       ctx.exit(2);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
     if (stat.isDirectory()) {
       ctx.stderr('Error: --print cannot be used with directories');
@@ -427,15 +436,17 @@ async function cmdFormat(args: string[], ctx: CliContext): Promise<void> {
     let content: string;
     try {
       content = await ctx.readFile(file);
-    } catch (e: any) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied reading: ${file}`);
-      } else if (e.code === 'EBUSY') {
+      } else if (error.code === 'EBUSY') {
         ctx.stderr(`Error: File is locked or busy: ${file}`);
       } else {
-        ctx.stderr(`Error: Cannot read ${file}: ${e.message}`);
+        ctx.stderr(`Error: Cannot read ${file}: ${error.message}`);
       }
       ctx.exit(2);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
     const formatted = await formatFile(content, file);
     ctx.stdout(formatted);
@@ -455,40 +466,45 @@ async function cmdFormat(args: string[], ctx: CliContext): Promise<void> {
     let content: string;
     try {
       content = await ctx.readFile(file);
-    } catch (e: any) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied reading: ${file}`);
-      } else if (e.code === 'ENOENT') {
+      } else if (error.code === 'ENOENT') {
         ctx.stderr(`Error: File not found: ${file}`);
-      } else if (e.code === 'EBUSY') {
+      } else if (error.code === 'EBUSY') {
         ctx.stderr(`Error: File is locked or busy: ${file}`);
       } else {
-        ctx.stderr(`Error: Cannot read ${file}: ${e.message}`);
+        ctx.stderr(`Error: Cannot read ${file}: ${error.message}`);
       }
       ctx.exit(1);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     const normalizedContent = normalizeLineEndings(content);
     let formatted: string;
     try {
       formatted = await formatFile(normalizedContent, file);
-    } catch (e: any) {
-      ctx.stderr(`Error formatting ${file}: ${e.message}`);
+    } catch (e: unknown) {
+      const error = e as Error;
+      ctx.stderr(`Error formatting ${file}: ${error.message}`);
       ctx.exit(1);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     if (formatted !== normalizedContent) {
       try {
         await ctx.writeFile(file, formatted);
-      } catch (e: any) {
-        if (e.code === 'EACCES' || e.code === 'EPERM') {
+      } catch (e: unknown) {
+        const error = e as NodeJS.ErrnoException;
+        if (error.code === 'EACCES' || error.code === 'EPERM') {
           ctx.stderr(`Error: Permission denied writing: ${file}`);
-        } else if (e.code === 'EBUSY') {
+        } else if (error.code === 'EBUSY') {
           ctx.stderr(`Error: File is locked or busy: ${file}`);
-        } else if (e.code === 'EROFS') {
+        } else if (error.code === 'EROFS') {
           ctx.stderr(`Error: File system is read-only: ${file}`);
         } else {
-          ctx.stderr(`Error: Cannot write ${file}: ${e.message}`);
+          ctx.stderr(`Error: Cannot write ${file}: ${error.message}`);
         }
         ctx.exit(1);
       }
@@ -519,6 +535,7 @@ async function cmdCheck(args: string[], ctx: CliContext): Promise<void> {
     if (!type) {
       ctx.stderr('Error: -i requires --type (sparksql, python, or pyspark)');
       ctx.exit(2);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     // Initialize Python formatter if needed
@@ -581,25 +598,29 @@ async function cmdCheck(args: string[], ctx: CliContext): Promise<void> {
     let content: string;
     try {
       content = await ctx.readFile(file);
-    } catch (e: any) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') {
+    } catch (e: unknown) {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === 'EACCES' || error.code === 'EPERM') {
         ctx.stderr(`Error: Permission denied reading: ${file}`);
-      } else if (e.code === 'ENOENT') {
+      } else if (error.code === 'ENOENT') {
         ctx.stderr(`Error: File not found: ${file}`);
-      } else if (e.code === 'EBUSY') {
+      } else if (error.code === 'EBUSY') {
         ctx.stderr(`Error: File is locked or busy: ${file}`);
       } else {
-        ctx.stderr(`Error: Cannot read ${file}: ${e.message}`);
+        ctx.stderr(`Error: Cannot read ${file}: ${error.message}`);
       }
       ctx.exit(1);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     let formatted: string;
     try {
       formatted = await formatFile(content, file);
-    } catch (e: any) {
-      ctx.stderr(`Error checking ${file}: ${e.message}`);
+    } catch (e: unknown) {
+      const error = e as Error;
+      ctx.stderr(`Error checking ${file}: ${error.message}`);
       ctx.exit(1);
+      return; // TypeScript: unreachable but makes control flow analysis happy
     }
 
     if (formatted !== content) {
@@ -677,11 +698,12 @@ export async function runCli(
           testCtx.exit(2);
       }
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e instanceof CliExitError) {
       // Expected - exit was called
     } else {
-      stderrBuffer += `Error: ${e.message}\n`;
+      const error = e as Error;
+      stderrBuffer += `Error: ${error.message}\n`;
       exitCode = 1;
     }
   }

@@ -249,10 +249,11 @@ export function calculateNewlineAndIndent(
   }
 
   // Expanded function close paren
-  if (isExpandedFunctionCloseParen && expandedFuncs.current()) {
+  const currentFunc = expandedFuncs.current();
+  if (isExpandedFunctionCloseParen && currentFunc) {
     needsNewline = true;
     indent = ' '.repeat(
-      indentCalc.getExpandedFunctionCloseIndent(expandedFuncs.current()?.depth),
+      indentCalc.getExpandedFunctionCloseIndent(currentFunc.depth),
     );
   }
 
@@ -356,10 +357,10 @@ export function calculateNewlineAndIndent(
   }
 
   // Expanded function comma
-  if (isExpandedFunctionComma && expandedFuncs.current()) {
+  if (isExpandedFunctionComma && currentFunc) {
     needsNewline = true;
     indent = ' '.repeat(
-      indentCalc.getExpandedFunctionCommaIndent(expandedFuncs.current()?.depth),
+      indentCalc.getExpandedFunctionCommaIndent(currentFunc.depth),
     );
     state.justOutputCommaFirstStyle = true;
   }

@@ -45,7 +45,7 @@ async function findWasmFileForNode(): Promise<Uint8Array> {
   // Get the path to ruff-wasm-web package
   // We need import.meta.url to create a require function
   // Use a fallback for bundled environments (though this path shouldn't be hit in browsers)
-  let ruffWasmDir: string;
+  let ruffWasmDir: string | undefined;
   try {
     const require = createRequire(import.meta.url);
     const ruffWasmPath = require.resolve('@astral-sh/ruff-wasm-web');
@@ -70,9 +70,9 @@ async function findWasmFileForNode(): Promise<Uint8Array> {
       }
       searchDir = dirname(searchDir);
     }
-    if (!ruffWasmDir) {
-      throw new Error('Could not locate @astral-sh/ruff-wasm-web package');
-    }
+  }
+  if (!ruffWasmDir) {
+    throw new Error('Could not locate @astral-sh/ruff-wasm-web package');
   }
 
   const wasmPath = join(ruffWasmDir, 'ruff_wasm_bg.wasm');

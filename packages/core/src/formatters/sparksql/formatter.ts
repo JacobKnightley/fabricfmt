@@ -563,12 +563,15 @@ function formatTokens(
     const isExpandedFunctionCloseParen = expandedFuncs.isCloseParen(tokenIndex);
 
     // Check expanded window state
+    // Capture in const to prevent TypeScript's control flow narrowing from
+    // incorrectly inferring 'never' type inside this large loop
+    const windowState = currentExpandedWindow;
     const isExpandedWindowOrderBy =
-      currentExpandedWindow?.orderByTokenIndex === tokenIndex;
+      windowState?.orderByTokenIndex === tokenIndex;
     const isExpandedWindowFrame =
-      currentExpandedWindow?.windowFrameTokenIndex === tokenIndex;
+      windowState?.windowFrameTokenIndex === tokenIndex;
     const isExpandedWindowCloseParen =
-      currentExpandedWindow?.closeParenIndex === tokenIndex;
+      windowState?.closeParenIndex === tokenIndex;
 
     // Check expanded pivot state
     const isExpandedPivotAggregateComma =

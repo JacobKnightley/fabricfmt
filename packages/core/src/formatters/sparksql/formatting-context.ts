@@ -95,8 +95,10 @@ export class ExpandedFunctionStack {
     return this.stack.pop();
   }
 
-  current(): ExpandedFunction | null {
-    return this.stack.length > 0 ? this.stack[this.stack.length - 1] : null;
+  current(): ExpandedFunction | undefined {
+    return this.stack.length > 0
+      ? this.stack[this.stack.length - 1]
+      : undefined;
   }
 
   get depth(): number {
@@ -109,7 +111,7 @@ export class ExpandedFunctionStack {
 
   isCloseParen(tokenIndex: number): boolean {
     const current = this.current();
-    return current !== null && current.closeParenIndex === tokenIndex;
+    return current !== undefined && current.closeParenIndex === tokenIndex;
   }
 
   /**
@@ -118,7 +120,7 @@ export class ExpandedFunctionStack {
    */
   isComma(tokenIndex: number): boolean {
     const current = this.current();
-    if (current === null || !current.commaIndices.has(tokenIndex)) {
+    if (current === undefined || !current.commaIndices.has(tokenIndex)) {
       return false;
     }
     // If this comma is in skipNewlineCommas, don't treat it as expanded comma
