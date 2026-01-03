@@ -58,6 +58,62 @@ import {
 import type { AnalyzerResult, ExpandedPivot, ExpandedWindow } from './types.js';
 
 // ============================================================================
+// PARSER INSTANCE POOL
+// ============================================================================
+
+/**
+ * Reusable parser/lexer instances for performance.
+ * Creating ANTLR lexer/parser instances has significant overhead (~6x slower).
+ * We maintain a small pool of instances that can be reused across format calls.
+ */
+interface ParserInstance {
+  lexer: InstanceType<typeof SqlBaseLexer>;
+  tokens: antlr4.CommonTokenStream;
+  parser: InstanceType<typeof SqlBaseParser>;
+  inUse: boolean;
+}
+
+const parserPool: ParserInstance[] = [];
+const POOL_SIZE = 4; // Small pool for concurrent formatting
+
+function getParserInstance(): ParserInstance {
+  // Find available instance in pool
+  for (const instance of parserPool) {
+    if (!instance.inUse) {
+      instance.inUse = true;
+      return instance;
+    }
+  }
+
+  // Create new instance if pool not full
+  if (parserPool.length < POOL_SIZE) {
+    const chars = new antlr4.InputStream('');
+    const lexer = new SqlBaseLexer(chars);
+    const tokens = new antlr4.CommonTokenStream(lexer);
+    const parser = new SqlBaseParser(tokens);
+    // @ts-expect-error - ANTLR types incomplete
+    parser.removeErrorListeners?.();
+
+    const instance: ParserInstance = { lexer, tokens, parser, inUse: true };
+    parserPool.push(instance);
+    return instance;
+  }
+
+  // Pool exhausted - create temporary instance (rare case)
+  const chars = new antlr4.InputStream('');
+  const lexer = new SqlBaseLexer(chars);
+  const tokens = new antlr4.CommonTokenStream(lexer);
+  const parser = new SqlBaseParser(tokens);
+  // @ts-expect-error - ANTLR types incomplete
+  parser.removeErrorListeners?.();
+  return { lexer, tokens, parser, inUse: false }; // Not tracked in pool
+}
+
+function releaseParserInstance(instance: ParserInstance): void {
+  instance.inUse = false;
+}
+
+// ============================================================================
 // PUBLIC API
 // ============================================================================
 
@@ -257,11 +313,14 @@ function normalizeForTokenization(sql: string): string {
  * 1. Try SLL (Simple LL) mode first - faster but may fail on ambiguous input
  * 2. Fall back to full LL mode only if SLL fails
  *
+ * Also uses parser instance pooling to avoid expensive lexer/parser construction.
+ *
  * With caseInsensitive lexer grammar, we only need a single parsing pass.
  * The lexer matches keywords regardless of case, and token.text preserves
  * the original casing from the input.
  */
 function formatSingleStatement(sql: string): string {
+  const instance = getParserInstance();
   try {
     // Extract ${variable} substitutions before formatting
     const { sql: sqlWithPlaceholders, substitutions } = extractVariables(sql);
@@ -269,31 +328,35 @@ function formatSingleStatement(sql: string): string {
     // Pre-normalize SQL to fix tokenization mismatches (e.g., scientific notation)
     const normalizedSql = normalizeForTokenization(sqlWithPlaceholders);
 
-    // Single-pass parsing: caseInsensitive lexer matches keywords regardless of case
-    // Token text preserves original casing from input
+    // Reset and configure lexer with new input
     const chars = new antlr4.InputStream(normalizedSql);
-    const lexer = new SqlBaseLexer(chars);
-    const tokens = new antlr4.CommonTokenStream(lexer);
-    tokens.fill();
+    (instance.lexer as any).inputStream = chars;
+    instance.lexer.reset();
 
-    const parser = new SqlBaseParser(tokens);
-    // @ts-expect-error
-    parser.removeErrorListeners?.();
+    // Reset token stream - must clear tokens array manually
+    const tokenStream = instance.tokens as any;
+    tokenStream.tokens = [];
+    tokenStream.index = -1;
+    tokenStream.fetchedEOF = false;
+    instance.tokens.fill();
+
+    // Reset parser
+    instance.parser.reset();
 
     // Two-stage parsing: try SLL first (faster), fall back to LL if needed
     // SLL (Simple LL) avoids full LL(*) lookahead for most inputs
     let tree: any;
     try {
       // Stage 1: SLL mode (faster, handles most SQL)
-      (parser as any)._interp.predictionMode = 0; // SLL = 0
-      tree = parser.singleStatement();
+      (instance.parser as any)._interp.predictionMode = 0; // SLL = 0
+      tree = instance.parser.singleStatement();
     } catch {
       // Stage 2: Full LL mode (handles ambiguous constructs)
-      (tokens as any).seek(0);
-      parser.reset();
-      (parser as any)._interp.predictionMode = 1; // LL = 1
+      (instance.tokens as any).seek(0);
+      instance.parser.reset();
+      (instance.parser as any)._interp.predictionMode = 1; // LL = 1
       try {
-        tree = parser.singleStatement();
+        tree = instance.parser.singleStatement();
       } catch {
         return sql;
       }
@@ -310,8 +373,8 @@ function formatSingleStatement(sql: string): string {
     // Format tokens - with caseInsensitive lexer, tokens.tokens contains
     // both correct token types AND original text
     const formatted = formatTokens(
-      tokens.tokens,
-      tokens.tokens, // Same token stream for both (no dual-parsing needed)
+      instance.tokens.tokens,
+      instance.tokens.tokens, // Same token stream for both (no dual-parsing needed)
       analysis,
       formatDirectives,
     );
@@ -321,6 +384,8 @@ function formatSingleStatement(sql: string): string {
   } catch (e: any) {
     console.error('Formatter error:', e.message, e.stack);
     return sql;
+  } finally {
+    releaseParserInstance(instance);
   }
 }
 
