@@ -252,18 +252,26 @@ function normalizeForTokenization(sql: string): string {
 
 /**
  * Format a single SQL statement.
+ *
+ * Uses two-stage parsing for performance:
+ * 1. Try SLL (Simple LL) mode first - faster but may fail on ambiguous input
+ * 2. Fall back to full LL mode only if SLL fails
+ *
+ * With caseInsensitive lexer grammar, we only need a single parsing pass.
+ * The lexer matches keywords regardless of case, and token.text preserves
+ * the original casing from the input.
  */
 function formatSingleStatement(sql: string): string {
   try {
     // Extract ${variable} substitutions before formatting
     const { sql: sqlWithPlaceholders, substitutions } = extractVariables(sql);
 
-    // Pre-normalize SQL to fix tokenization mismatches
+    // Pre-normalize SQL to fix tokenization mismatches (e.g., scientific notation)
     const normalizedSql = normalizeForTokenization(sqlWithPlaceholders);
 
-    // Parse with uppercased SQL (grammar matches uppercase keywords)
-    const upperSql = normalizedSql.toUpperCase();
-    const chars = new antlr4.InputStream(upperSql);
+    // Single-pass parsing: caseInsensitive lexer matches keywords regardless of case
+    // Token text preserves original casing from input
+    const chars = new antlr4.InputStream(normalizedSql);
     const lexer = new SqlBaseLexer(chars);
     const tokens = new antlr4.CommonTokenStream(lexer);
     tokens.fill();
@@ -272,11 +280,23 @@ function formatSingleStatement(sql: string): string {
     // @ts-expect-error
     parser.removeErrorListeners?.();
 
+    // Two-stage parsing: try SLL first (faster), fall back to LL if needed
+    // SLL (Simple LL) avoids full LL(*) lookahead for most inputs
     let tree: any;
     try {
+      // Stage 1: SLL mode (faster, handles most SQL)
+      (parser as any)._interp.predictionMode = 0; // SLL = 0
       tree = parser.singleStatement();
     } catch {
-      return sql;
+      // Stage 2: Full LL mode (handles ambiguous constructs)
+      (tokens as any).seek(0);
+      parser.reset();
+      (parser as any)._interp.predictionMode = 1; // LL = 1
+      try {
+        tree = parser.singleStatement();
+      } catch {
+        return sql;
+      }
     }
 
     // Analyze parse tree
@@ -284,19 +304,14 @@ function formatSingleStatement(sql: string): string {
     analyzer.visit(tree);
     const analysis = analyzer.getResult();
 
-    // Re-lex normalized SQL to get token texts (now aligned with uppercase stream)
-    const origChars = new antlr4.InputStream(normalizedSql);
-    const origLexer = new SqlBaseLexer(origChars);
-    const origTokens = new antlr4.CommonTokenStream(origLexer);
-    origTokens.fill();
-
     // Detect fmt:collapse directives
     const formatDirectives = detectCollapseDirectives(normalizedSql);
 
-    // Format tokens
+    // Format tokens - with caseInsensitive lexer, tokens.tokens contains
+    // both correct token types AND original text
     const formatted = formatTokens(
       tokens.tokens,
-      origTokens.tokens,
+      tokens.tokens, // Same token stream for both (no dual-parsing needed)
       analysis,
       formatDirectives,
     );
