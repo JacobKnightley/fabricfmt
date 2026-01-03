@@ -129,6 +129,9 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
   // IN list wrapping
   inListInfo: Map<number, InListInfo> = new Map();
 
+  // Pre-computed set of all IN list comma indices for O(1) lookup
+  allInListCommas: Set<number> = new Set();
+
   // Simple query compaction
   simpleQueries: Map<number, SimpleQueryInfo> = new Map();
 
@@ -188,6 +191,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
       windowDefInfo: this.windowDefInfo,
       pivotInfo: this.pivotInfo,
       inListInfo: this.inListInfo,
+      allInListCommas: this.allInListCommas,
       simpleQueries: this.simpleQueries,
     };
   }
@@ -1407,6 +1411,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         commaIndices,
         isInPivot: false, // WHERE IN, not PIVOT IN
       });
+      // Add commas to the pre-computed set for O(1) lookup
+      for (const idx of commaIndices) {
+        this.allInListCommas.add(idx);
+      }
     }
   }
 
@@ -1509,6 +1517,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
           commaIndices: inListCommaIndices,
           isInPivot: true,
         });
+        // Add commas to the pre-computed set for O(1) lookup
+        for (const idx of inListCommaIndices) {
+          this.allInListCommas.add(idx);
+        }
       }
     }
   }

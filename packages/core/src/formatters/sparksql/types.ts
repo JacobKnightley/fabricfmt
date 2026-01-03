@@ -179,6 +179,9 @@ export interface AnalyzerResult {
   // IN list wrapping (WHERE IN and PIVOT IN)
   inListInfo: Map<number, InListInfo>;
 
+  // Pre-computed set of all IN list comma token indices for O(1) lookup
+  allInListCommas: Set<number>;
+
   // Simple query compaction
   simpleQueries: Map<number, SimpleQueryInfo>;
 }
