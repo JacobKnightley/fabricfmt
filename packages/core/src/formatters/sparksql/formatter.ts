@@ -374,7 +374,6 @@ function formatSingleStatement(sql: string): string {
     // both correct token types AND original text
     const formatted = formatTokens(
       instance.tokens.tokens,
-      instance.tokens.tokens, // Same token stream for both (no dual-parsing needed)
       analysis,
       formatDirectives,
     );
@@ -393,8 +392,7 @@ function formatSingleStatement(sql: string): string {
  * Format tokens using the analysis result.
  */
 function formatTokens(
-  tokenList: any[],
-  allOrigTokens: any[],
+  tokens: any[],
   analysis: AnalyzerResult,
   formatDirectives: FormatDirectiveInfo,
 ): string {
@@ -408,7 +406,7 @@ function formatTokens(
   let lastProcessedIndex = -1;
 
   // Populate force-inline ranges from fmt:inline comments (grammar-driven approach)
-  const forceInlineRanges = findForceInlineRanges(allOrigTokens, analysis);
+  const forceInlineRanges = findForceInlineRanges(tokens, analysis);
   formatDirectives.forceInlineRanges = forceInlineRanges;
 
   // IN list wrapping state
@@ -439,7 +437,7 @@ function formatTokens(
   let isShortSetOperation = false;
   if (analysis.setOperandParens.size > 0) {
     let estimatedQueryLength = 0;
-    for (const tok of tokenList) {
+    for (const tok of tokens) {
       if (tok.type !== SqlBaseLexer.WS && tok.type !== antlr4.Token.EOF) {
         estimatedQueryLength += (tok.text?.length || 0) + 1; // +1 for space
       }
@@ -457,7 +455,7 @@ function formatTokens(
   let isShortValues = false;
   if (analysis.valuesCommas.size > 0 && !analysis.valuesHasTuples) {
     let estimatedQueryLength = 0;
-    for (const tok of tokenList) {
+    for (const tok of tokens) {
       if (tok.type !== SqlBaseLexer.WS && tok.type !== antlr4.Token.EOF) {
         estimatedQueryLength += (tok.text?.length || 0) + 1; // +1 for space
       }
@@ -467,8 +465,8 @@ function formatTokens(
 
   // Helper to find next non-WS token
   const findNextNonWsTokenIndex = (startIdx: number): number => {
-    for (let j = startIdx; j < tokenList.length; j++) {
-      const tok = tokenList[j];
+    for (let j = startIdx; j < tokens.length; j++) {
+      const tok = tokens[j];
       if (
         tok.type !== SqlBaseLexer.WS &&
         tok.type !== antlr4.Token.EOF &&
@@ -484,7 +482,7 @@ function formatTokens(
   // Helper to collect comments from range
   const collectComments = (startIdx: number, endIdx: number): void => {
     for (let j = startIdx; j < endIdx; j++) {
-      const hiddenToken = allOrigTokens[j];
+      const hiddenToken = tokens[j];
       if (hiddenToken && hiddenToken.channel === 1) {
         if (
           hiddenToken.type === SqlBaseLexer.SIMPLE_COMMENT ||
@@ -493,11 +491,11 @@ function formatTokens(
           const wasOnOwnLine = CommentManager.checkWasOnOwnLine(
             j,
             hiddenToken,
-            allOrigTokens,
+            tokens,
           );
           const hadBlankLineBefore = CommentManager.checkHadBlankLineBefore(
             j,
-            allOrigTokens,
+            tokens,
           );
           comments.add({
             text: hiddenToken.text,
@@ -510,9 +508,8 @@ function formatTokens(
     }
   };
 
-  for (let i = 0; i < tokenList.length && i < allOrigTokens.length; i++) {
-    const token = tokenList[i];
-    const origToken = allOrigTokens[i];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
 
     if (token.type === antlr4.Token.EOF) continue;
 
@@ -532,17 +529,13 @@ function formatTokens(
       token.type === SqlBaseLexer.BRACKETED_COMMENT
     ) {
       if (!wasAlreadyProcessed) {
-        const wasOnOwnLine = CommentManager.checkWasOnOwnLine(
-          i,
-          origToken,
-          allOrigTokens,
-        );
+        const wasOnOwnLine = CommentManager.checkWasOnOwnLine(i, token, tokens);
         const hadBlankLineBefore = CommentManager.checkHadBlankLineBefore(
           i,
-          allOrigTokens,
+          tokens,
         );
         comments.add({
-          text: origToken.text,
+          text: token.text,
           type: token.type,
           wasOnOwnLine,
           hadBlankLineBefore,
@@ -551,7 +544,7 @@ function formatTokens(
       continue;
     }
 
-    const text = origToken.text;
+    const text = token.text;
     const tokenType = token.type;
     const tokenIndex = token.tokenIndex;
     const symbolicName = getSymbolicName(tokenType);
@@ -674,8 +667,8 @@ function formatTokens(
 
     // Get next token type for lookahead (skip WS tokens)
     let nextTokenType: number | null = null;
-    for (let j = i + 1; j < tokenList.length; j++) {
-      const nextToken = tokenList[j];
+    for (let j = i + 1; j < tokens.length; j++) {
+      const nextToken = tokens[j];
       if (
         nextToken.type !== SqlBaseLexer.WS &&
         nextToken.type !== SqlBaseLexer.SIMPLE_COMMENT &&
@@ -820,7 +813,7 @@ function formatTokens(
     if (activeInList?.commaIndices.has(tokenIndex) && text === ',') {
       // Look ahead to estimate the length of the next item
       const nextItemLength = estimateNextInListItemLength(
-        tokenList,
+        tokens,
         i,
         findNextNonWsTokenIndex,
         activeInList.closeParenIndex,
@@ -896,7 +889,7 @@ function formatTokens(
 
     // Handle multi-arg function expansion
     // Check if this token is force-inline (either line-based legacy or grammar-driven)
-    const tokenLine = allOrigTokens[i]?.line || 0;
+    const tokenLine = tokens[i]?.line || 0;
     const lineBasedForceCollapse =
       formatDirectives.collapsedLines.has(tokenLine);
     const grammarBasedForceCollapse = isForceInlineOpen(
@@ -914,7 +907,7 @@ function formatTokens(
         builder,
         expandedFuncs,
         multiArgFuncInfo,
-        tokenList,
+        tokens,
         i,
         findNextNonWsTokenIndex,
         analysis,
@@ -1067,7 +1060,7 @@ function formatTokens(
  * 4. If so, add that construct's token range to the force-inline ranges
  */
 function findForceInlineRanges(
-  allOrigTokens: any[],
+  tokens: any[],
   analysis: AnalyzerResult,
 ): ForceInlineRange[] {
   const ranges: ForceInlineRange[] = [];
@@ -1083,8 +1076,8 @@ function findForceInlineRanges(
   };
 
   // Scan all tokens for fmt:inline comments
-  for (let i = 0; i < allOrigTokens.length; i++) {
-    const token = allOrigTokens[i];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
     if (!token) continue;
 
     // Check if this is a comment with fmt:inline
@@ -1097,7 +1090,7 @@ function findForceInlineRanges(
         // Find the closest preceding non-WS, non-comment token
         let precedingTokenIdx = i - 1;
         while (precedingTokenIdx >= 0) {
-          const prevToken = allOrigTokens[precedingTokenIdx];
+          const prevToken = tokens[precedingTokenIdx];
           if (
             prevToken &&
             prevToken.type !== SqlBaseLexer.WS &&
