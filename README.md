@@ -42,6 +42,14 @@ fabfmt check --type sparksql -i "select * from t"       # Check inline string
 echo "select * from t" | fabfmt check --type sparksql   # Check from stdin
 ```
 
+### Exit Codes
+
+| Code | Meaning                                          |
+| ---- | ------------------------------------------------ |
+| 0    | Success (format: no changes needed, check: pass) |
+| 1    | Failure (format: error occurred, check: changes needed) |
+| 2    | Usage error (invalid arguments, missing files)   |
+
 ## Browser Extension
 
 Format Fabric notebooks directly in your browser with a single click.

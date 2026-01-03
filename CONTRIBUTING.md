@@ -38,9 +38,27 @@ npm run build:chromium # Build extension only
 ## Test
 
 ```bash
-npm test               # Run all 335+ tests
+npm test               # Run all tests (core + chromium)
+npm run test:core      # Run core library tests only
+npm run test:chromium  # Run extension tests only
 npm run test:verbose   # With failure details
 ```
+
+### Testing the Chromium Extension
+
+The extension tests run in Node.js with a mocked DOM environment:
+
+```bash
+npm run test:chromium
+```
+
+For manual testing in the browser:
+
+1. Build the extension: `npm run build:chromium`
+2. Load as unpacked extension in Chrome/Edge (see [README](./README.md#installation))
+3. Open a Fabric notebook and test the Format button
+
+**Note:** Content scripts run in an isolated context. You cannot test extension code directly in the browser's DevTools console—the page's JavaScript and the extension's JavaScript are in separate worlds.
 
 ## Architecture
 
