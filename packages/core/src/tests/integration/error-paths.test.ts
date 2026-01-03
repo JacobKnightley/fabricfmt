@@ -632,6 +632,188 @@ const pythonInitFailureTests: ErrorTestCase[] = [
 ];
 
 // ============================================================================
+// Test Cases: Concurrent formatting scenarios (fabric-format-ruu)
+// ============================================================================
+
+const concurrentFormattingTests: ErrorTestCase[] = [
+  {
+    name: 'Concurrent formatNotebook calls on different files work correctly',
+    test: async () => {
+      await initializePythonFormatter();
+
+      const pyContent = `# Fabric notebook source
+
+# CELL ********************
+
+x=1
+
+# METADATA ********************
+
+# META {
+# META   "language": "python"
+# META }
+`;
+      const sqlContent = `-- Fabric notebook source
+
+-- CELL ********************
+
+select * from t
+
+-- METADATA ********************
+
+-- META {
+-- META   "language": "sparksql"
+-- META }
+`;
+      // Run both formatting operations concurrently
+      const [pyResult, sqlResult] = await Promise.all([
+        formatNotebook(pyContent, '.py'),
+        formatNotebook(sqlContent, '.sql'),
+      ]);
+
+      const pyFormatted = pyResult.content.includes('x = 1');
+      const sqlFormatted = sqlResult.content.includes('SELECT');
+
+      return {
+        passed: pyFormatted && sqlFormatted,
+        message:
+          !pyFormatted && !sqlFormatted
+            ? 'Both notebooks failed to format'
+            : !pyFormatted
+              ? 'Python notebook failed to format'
+              : !sqlFormatted
+                ? 'SQL notebook failed to format'
+                : undefined,
+      };
+    },
+  },
+  {
+    name: 'Multiple formatCell calls in parallel work correctly',
+    test: async () => {
+      await initializePythonFormatter();
+
+      // Format multiple SQL cells in parallel
+      const inputs = [
+        'select a from t1',
+        'select b from t2',
+        'select c from t3',
+        'select d from t4',
+        'select e from t5',
+      ];
+
+      const results = await Promise.all(
+        inputs.map((input) => Promise.resolve(formatCell(input, 'sparksql'))),
+      );
+
+      const allFormatted = results.every(
+        (r, i) =>
+          r.formatted.includes('SELECT') &&
+          r.formatted.includes(String.fromCharCode(65 + i).toLowerCase()),
+      );
+
+      return {
+        passed: allFormatted,
+        message: !allFormatted
+          ? 'Some cells failed to format correctly in parallel'
+          : undefined,
+      };
+    },
+  },
+  {
+    name: 'Concurrent Python initialization calls share same promise',
+    test: async () => {
+      // Reset to test initialization behavior
+      resetPythonFormatterState();
+
+      // Start multiple initializations concurrently
+      const promises = [
+        initializePythonFormatter(),
+        initializePythonFormatter(),
+        initializePythonFormatter(),
+      ];
+
+      // All should complete successfully
+      await Promise.all(promises);
+
+      const isReady = isPythonFormatterReady();
+
+      return {
+        passed: isReady === true,
+        message: !isReady
+          ? 'Python formatter should be ready after concurrent inits'
+          : undefined,
+      };
+    },
+  },
+  {
+    name: 'formatCellAsync during initialization waits correctly',
+    test: async () => {
+      // Reset to test initialization behavior
+      resetPythonFormatterState();
+
+      // Start init but don't await
+      const initPromise = initializePythonFormatter();
+
+      // Immediately try to format (should wait for init)
+      const formatPromise = formatCellAsync('x=1', 'python');
+
+      // Wait for both
+      await initPromise;
+      const result = await formatPromise;
+
+      return {
+        passed: result.formatted.includes('x = 1') && !result.error,
+        message: result.error
+          ? `formatCellAsync failed: ${result.error}`
+          : !result.formatted.includes('x = 1')
+            ? 'Python code was not formatted correctly'
+            : undefined,
+      };
+    },
+  },
+  {
+    name: 'Mixed SQL and Python formatCell calls work concurrently',
+    test: async () => {
+      await initializePythonFormatter();
+
+      const calls = [
+        { content: 'select * from t', type: 'sparksql' as const },
+        { content: 'x=1', type: 'python' as const },
+        { content: 'select a, b from t', type: 'sparksql' as const },
+        { content: 'y=2', type: 'python' as const },
+        { content: 'select 1', type: 'sparksql' as const },
+      ];
+
+      const results = await Promise.all(
+        calls.map((c) => Promise.resolve(formatCell(c.content, c.type))),
+      );
+
+      const sqlResults = results.filter((_, i) => calls[i].type === 'sparksql');
+      const pyResults = results.filter((_, i) => calls[i].type === 'python');
+
+      const allSqlCorrect = sqlResults.every((r) =>
+        r.formatted.includes('SELECT'),
+      );
+      const allPyCorrect = pyResults.every(
+        (r) => r.formatted.includes('=') && !r.error,
+      );
+
+      return {
+        passed: allSqlCorrect && allPyCorrect,
+        message:
+          !allSqlCorrect && !allPyCorrect
+            ? 'Both SQL and Python formatting failed'
+            : !allSqlCorrect
+              ? 'SQL formatting failed in concurrent scenario'
+              : !allPyCorrect
+                ? 'Python formatting failed in concurrent scenario'
+                : undefined,
+      };
+    },
+  },
+];
+
+// ============================================================================
 // Test Runner
 // ============================================================================
 
@@ -640,6 +822,7 @@ const allErrorTests: ErrorTestCase[] = [
   ...emptyEdgeCaseTests,
   ...formatCellErrorTests,
   ...pythonInitFailureTests,
+  ...concurrentFormattingTests,
 ];
 
 export async function runErrorPathTests(): Promise<TestResult[]> {
