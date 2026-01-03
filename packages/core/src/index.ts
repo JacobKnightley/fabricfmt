@@ -22,13 +22,13 @@ export { formatSql, needsFormatting } from './formatters/sparksql/index.js';
 
 export {
   detectLanguage,
-  formatContextLocation,
-  formatErrorWithContext,
   type FormatResult,
   type FormatterConfig,
   type FormatterOptions,
   type FormatterRegistry,
   type FormattingContext,
+  formatContextLocation,
+  formatErrorWithContext,
   // Registry
   getFormatterRegistry,
   getPythonFormatter,

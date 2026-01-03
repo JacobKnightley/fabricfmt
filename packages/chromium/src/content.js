@@ -7,7 +7,6 @@
 import {
   formatCell,
   initializePythonFormatter,
-  formatErrorWithContext,
 } from '@jacobknightley/fabric-format';
 
 // ============================================================================

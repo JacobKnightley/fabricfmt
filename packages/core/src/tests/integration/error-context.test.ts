@@ -29,7 +29,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const expected = 'cell 5 of notebook.py';
       return {
         passed: location === expected,
-        message: location !== expected ? `Expected "${expected}", got "${location}"` : undefined,
+        message:
+          location !== expected
+            ? `Expected "${expected}", got "${location}"`
+            : undefined,
       };
     },
   },
@@ -40,7 +43,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const expected = 'cell 3';
       return {
         passed: location === expected,
-        message: location !== expected ? `Expected "${expected}", got "${location}"` : undefined,
+        message:
+          location !== expected
+            ? `Expected "${expected}", got "${location}"`
+            : undefined,
       };
     },
   },
@@ -51,7 +57,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const expected = 'test.py';
       return {
         passed: location === expected,
-        message: location !== expected ? `Expected "${expected}", got "${location}"` : undefined,
+        message:
+          location !== expected
+            ? `Expected "${expected}", got "${location}"`
+            : undefined,
       };
     },
   },
@@ -61,7 +70,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const location = formatContextLocation({});
       return {
         passed: location === '',
-        message: location !== '' ? `Expected empty string, got "${location}"` : undefined,
+        message:
+          location !== ''
+            ? `Expected empty string, got "${location}"`
+            : undefined,
       };
     },
   },
@@ -71,7 +83,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const location = formatContextLocation(undefined);
       return {
         passed: location === '',
-        message: location !== '' ? `Expected empty string, got "${location}"` : undefined,
+        message:
+          location !== ''
+            ? `Expected empty string, got "${location}"`
+            : undefined,
       };
     },
   },
@@ -85,7 +100,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const expected = 'Format error in cell 5 of notebook.py: syntax error';
       return {
         passed: error === expected,
-        message: error !== expected ? `Expected "${expected}", got "${error}"` : undefined,
+        message:
+          error !== expected
+            ? `Expected "${expected}", got "${error}"`
+            : undefined,
       };
     },
   },
@@ -95,7 +113,10 @@ const errorContextTests: ErrorContextTestCase[] = [
       const error = formatErrorWithContext('syntax error', undefined);
       return {
         passed: error === 'syntax error',
-        message: error !== 'syntax error' ? `Expected "syntax error", got "${error}"` : undefined,
+        message:
+          error !== 'syntax error'
+            ? `Expected "syntax error", got "${error}"`
+            : undefined,
       };
     },
   },
@@ -106,18 +127,26 @@ const errorContextTests: ErrorContextTestCase[] = [
       const expected = 'Format error in cell 42: parse failed';
       return {
         passed: error === expected,
-        message: error !== expected ? `Expected "${expected}", got "${error}"` : undefined,
+        message:
+          error !== expected
+            ? `Expected "${expected}", got "${error}"`
+            : undefined,
       };
     },
   },
   {
     name: 'formatErrorWithContext with file only',
     test: () => {
-      const error = formatErrorWithContext('parse failed', { filePath: 'myfile.py' });
+      const error = formatErrorWithContext('parse failed', {
+        filePath: 'myfile.py',
+      });
       const expected = 'Format error in myfile.py: parse failed';
       return {
         passed: error === expected,
-        message: error !== expected ? `Expected "${expected}", got "${error}"` : undefined,
+        message:
+          error !== expected
+            ? `Expected "${expected}", got "${error}"`
+            : undefined,
       };
     },
   },
@@ -130,10 +159,12 @@ const errorContextTests: ErrorContextTestCase[] = [
         cellIndex: 1,
         filePath: 'test.py',
       });
-      
+
       return {
         passed: result.error === undefined,
-        message: result.error ? `Unexpected error: "${result.error}"` : undefined,
+        message: result.error
+          ? `Unexpected error: "${result.error}"`
+          : undefined,
       };
     },
   },
@@ -145,10 +176,12 @@ const errorContextTests: ErrorContextTestCase[] = [
         cellIndex: 2,
         filePath: 'analysis.py',
       });
-      
+
       return {
         passed: result.error === undefined,
-        message: result.error ? `Unexpected error: "${result.error}"` : undefined,
+        message: result.error
+          ? `Unexpected error: "${result.error}"`
+          : undefined,
       };
     },
   },
@@ -157,14 +190,17 @@ const errorContextTests: ErrorContextTestCase[] = [
     test: () => {
       const sqlResult = formatCell('SELECT * FROM t', 'sparksql');
       const pyResult = formatCell('x = 1', 'python');
-      
+
       const sqlOk = sqlResult.error === undefined;
       const pyOk = pyResult.error === undefined;
-      
+
       return {
         passed: sqlOk && pyOk,
-        message: !sqlOk ? `SQL error: ${sqlResult.error}` : 
-                 !pyOk ? `Python error: ${pyResult.error}` : undefined,
+        message: !sqlOk
+          ? `SQL error: ${sqlResult.error}`
+          : !pyOk
+            ? `Python error: ${pyResult.error}`
+            : undefined,
       };
     },
   },

@@ -21,9 +21,9 @@
  */
 
 import {
+  type FormattingContext,
   formatErrorWithContext,
   getFormatterRegistry,
-  type FormattingContext,
 } from './formatters/index.js';
 import {
   getPythonFormatter,
