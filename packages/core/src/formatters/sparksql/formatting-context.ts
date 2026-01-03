@@ -163,6 +163,13 @@ export class CommentManager {
 
   /**
    * Check if a comment was on its own line in the original input.
+   *
+   * A comment is on its own line if:
+   * 1. It starts at column 0, OR
+   * 2. It's preceded by WS that contains a newline, OR
+   * 3. It's preceded by WS at column 0 (meaning indent at start of line, the newline
+   *    was consumed by the previous token like SIMPLE_COMMENT which includes \n), OR
+   * 4. It immediately follows another comment (SIMPLE_COMMENT includes \n, so no WS between)
    */
   static checkWasOnOwnLine(
     commentTokenIndex: number,
@@ -177,10 +184,26 @@ export class CommentManager {
       const prevToken = allTokens[k];
       if (!prevToken) continue;
       if (prevToken.channel !== 1) break;
+
+      // WS with newline means comment is on its own line
       if (
         prevToken.type === SqlBaseLexer.WS &&
         prevToken.text &&
         prevToken.text.includes('\n')
+      ) {
+        return true;
+      }
+
+      // WS at column 0 means it's indent at start of line (newline was in prev token)
+      if (prevToken.type === SqlBaseLexer.WS && prevToken.column === 0) {
+        return true;
+      }
+
+      // If preceded immediately by another comment (SIMPLE_COMMENT includes \n),
+      // this comment is on its own line
+      if (
+        prevToken.type === SqlBaseLexer.SIMPLE_COMMENT ||
+        prevToken.type === SqlBaseLexer.BRACKETED_COMMENT
       ) {
         return true;
       }
