@@ -16,6 +16,7 @@ import {
 import {
   runCliTests,
   runErrorContextTests,
+  runErrorPathTests,
   runNotebookParsingTests,
 } from './integration/index.js';
 // Import Python test suites
@@ -233,6 +234,17 @@ async function main(): Promise<void> {
   const errorContextResult = await runErrorContextTests();
   results.push(errorContextResult);
   printSuiteResult(errorContextResult, verbose);
+
+  // Run error path tests
+  const errorPathResult = await runErrorPathTests();
+  const errorPathSuiteResult: SuiteResult = {
+    suiteName: 'Error Paths',
+    passed: errorPathResult.filter((r) => r.passed).length,
+    failed: errorPathResult.filter((r) => !r.passed).length,
+    results: errorPathResult,
+  };
+  results.push(errorPathSuiteResult);
+  printSuiteResult(errorPathSuiteResult, verbose);
 
   // Run notebook parsing tests
   const parsingResult = await runNotebookParsingTests();

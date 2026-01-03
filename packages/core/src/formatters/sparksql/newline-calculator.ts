@@ -17,7 +17,7 @@ export interface ExpandedFunctionEntry {
   depth: number;
   openingColumn: number;
   firstArgIsChainedFunc: boolean;
-  functionName: string;
+  functionName?: string;
   skipNewlineCommas?: Set<number>;
 }
 

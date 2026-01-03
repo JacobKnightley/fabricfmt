@@ -10,6 +10,10 @@ export {
   runErrorContextTests,
 } from './error-context.test.js';
 export {
+  errorPathTests,
+  runErrorPathTests,
+} from './error-paths.test.js';
+export {
   notebookParsingTests,
   runNotebookParsingTests,
 } from './notebook-parsing.test.js';
