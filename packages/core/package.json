@@ -8,6 +8,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./sql": {
+      "import": "./dist/formatters/sparksql/index.js",
+      "types": "./dist/formatters/sparksql/index.d.ts"
+    },
+    "./python": {
+      "import": "./dist/formatters/python/index.js",
+      "types": "./dist/formatters/python/index.d.ts"
+    },
+    "./formatters": {
+      "import": "./dist/formatters/index.js",
+      "types": "./dist/formatters/index.d.ts"
     }
   },
   "types": "dist/index.d.ts",

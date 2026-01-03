@@ -98,3 +98,9 @@ export {
   hasCollapseDirective,
   hasFormatOff,
 } from './formatters/sparksql/index.js';
+
+// ============================================================================
+// File Utilities
+// ============================================================================
+
+export { isSupportedFile, SUPPORTED_EXTENSIONS } from './cli.js';
