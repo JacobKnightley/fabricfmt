@@ -62,7 +62,22 @@ function findSupportedFiles(dir: string): string[] {
     }
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
+
+      // Handle symlinks by checking what they point to
+      let isDir = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stat = fs.statSync(fullPath);
+          isDir = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          // Broken symlink - skip it
+          continue;
+        }
+      }
+
+      if (isDir) {
         // Skip common non-source directories
         if (
           ![
@@ -77,7 +92,7 @@ function findSupportedFiles(dir: string): string[] {
         ) {
           walk(fullPath);
         }
-      } else if (entry.isFile()) {
+      } else if (isFile) {
         const ext = path.extname(entry.name).toLowerCase();
         if (SUPPORTED_EXTENSIONS.includes(ext)) {
           files.push(fullPath);
@@ -134,9 +149,11 @@ async function formatFile(content: string, filePath: string): Promise<string> {
 /**
  * Normalize line endings to LF (Unix style).
  * This library standardizes on LF for all output.
+ * Handles: CRLF (Windows), CR (old Mac), mixed endings.
  */
 function normalizeLineEndings(content: string): string {
-  return content.replace(/\r\n/g, '\n');
+  // Replace CRLF first (Windows), then standalone CR (old Mac)
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
 /** Print main help */

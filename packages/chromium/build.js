@@ -32,16 +32,25 @@ const wasmDistPath = join(__dirname, 'dist/ruff_wasm_bg.wasm');
 let wasmCopied = false;
 for (const wasmSourcePath of wasmPaths) {
   if (existsSync(wasmSourcePath)) {
-    copyFileSync(wasmSourcePath, wasmDistPath);
-    console.log('✓ Copied ruff_wasm_bg.wasm to dist/');
-    wasmCopied = true;
-    break;
+    try {
+      copyFileSync(wasmSourcePath, wasmDistPath);
+      console.log('✓ Copied ruff_wasm_bg.wasm to dist/');
+      wasmCopied = true;
+      break;
+    } catch (err) {
+      console.error(
+        `✗ Failed to copy WASM from ${wasmSourcePath}: ${err.message}`,
+      );
+      // Continue to try next path
+    }
   }
 }
 if (!wasmCopied) {
-  console.warn(
-    '⚠ Could not find ruff_wasm_bg.wasm - Python formatting will not work',
+  console.error(
+    '✗ Could not find or copy ruff_wasm_bg.wasm - Python formatting will not work',
   );
+  console.error('  Run: npm install @astral-sh/ruff-wasm-web');
+  process.exit(1);
 }
 
 // Build configuration for main content script
