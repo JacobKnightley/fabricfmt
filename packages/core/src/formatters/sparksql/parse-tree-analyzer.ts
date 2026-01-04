@@ -1421,6 +1421,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
       const openIdx = openParenIndex;
       const closeIdx = closeParenIndex;
 
+      // Track paren depth to only mark top-level commas as item separators
+      let collectDepth = 0;
       const collectTokens = (node: any): void => {
         if (!node) return;
         if (node.symbol) {
@@ -1428,12 +1430,19 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
           // Only include tokens between open and close paren
           if (tokenIndex > openIdx && tokenIndex < closeIdx) {
             const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+            // Track nesting depth
+            if (symName === 'LEFT_PAREN') {
+              collectDepth++;
+            } else if (symName === 'RIGHT_PAREN') {
+              collectDepth--;
+            }
             // Skip whitespace
             if (symName !== 'WS') {
               listTokens.push({
                 tokenIndex,
                 textLength: (node.symbol.text || '').length,
-                isComma: symName === 'COMMA',
+                // Only mark commas at depth 0 as IN list item separators
+                isComma: symName === 'COMMA' && collectDepth === 0,
               });
             }
           }

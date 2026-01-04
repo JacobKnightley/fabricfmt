@@ -996,7 +996,10 @@ function formatTokens(
     const lineBasedForceCollapse =
       formatDirectives.collapsedLines.has(tokenLine);
     const grammarBasedForceCollapse = forceInlineRanges.has(tokenIndex);
-    const forceCollapse = lineBasedForceCollapse || grammarBasedForceCollapse;
+    // Suppress function expansion when inside IN list - IN list wrapping handles layout
+    const insideInList = activeInList !== null;
+    const forceCollapse =
+      lineBasedForceCollapse || grammarBasedForceCollapse || insideInList;
 
     if (
       multiArgFuncInfo &&
