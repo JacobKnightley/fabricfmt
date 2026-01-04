@@ -736,6 +736,487 @@ describe('Cleanup handler management', () => {
 });
 
 // ============================================================================
+// Monaco Lazy-Loading Simulator
+// ============================================================================
+// This simulator mimics Monaco's lazy-loading behavior in Fabric notebooks.
+// Use it to test the stability checking logic without a real browser.
+//
+// Monaco loads content in stages:
+//   1. .view-line divs are created (but empty)
+//   2. Spans with text populate ASYNCHRONOUSLY after focus
+//   3. Text may arrive incrementally over multiple frames
+//
+// See: fabric-format-ska (original bug), fabric-format-p06 (this simulator)
+// ============================================================================
+
+/**
+ * Creates a mock Monaco editor that simulates lazy-loading behavior.
+ *
+ * @param {Object} options Configuration options
+ * @param {string[]} options.lines Array of code lines to simulate
+ * @param {number} options.initialDelayMs Delay before any text appears (default: 0)
+ * @param {number} options.lineDelayMs Delay between lines loading (default: 0)
+ * @param {number} options.charDelayMs Delay for partial character loading (default: 0)
+ * @param {boolean} options.createEmptyDivsFirst Create empty .view-line divs before text (default: true)
+ * @param {number} options.emptyDivDelayMs How long divs stay empty (default: 50)
+ * @returns {Object} Mock editor with DOM and control methods
+ */
+function createMockMonacoEditor(options = {}) {
+  const {
+    lines = ['SELECT * FROM table'],
+    initialDelayMs = 0,
+    lineDelayMs = 0,
+    charDelayMs = 0,
+    createEmptyDivsFirst = true,
+    emptyDivDelayMs = 50,
+  } = options;
+
+  // Create the DOM structure
+  const dom = new JSDOM('<div class="monaco-editor"></div>');
+  const document = dom.window.document;
+  const editor = document.querySelector('.monaco-editor');
+
+  // Add view-lines container
+  const viewLines = document.createElement('div');
+  viewLines.className = 'view-lines';
+  editor.appendChild(viewLines);
+
+  // Add textarea (for focus simulation)
+  const textarea = document.createElement('textarea');
+  textarea.className = 'inputarea';
+  editor.appendChild(textarea);
+
+  // Track state
+  let isConnected = true;
+  let loadingState = 'initial'; // 'initial' | 'divs-created' | 'loading' | 'complete'
+  let currentLineIndex = 0;
+  let pendingTimeouts = [];
+
+  // Create empty divs immediately if configured
+  if (createEmptyDivsFirst) {
+    for (let i = 0; i < lines.length; i++) {
+      const viewLine = document.createElement('div');
+      viewLine.className = 'view-line';
+      viewLine.style.top = `${i * 20}px`;
+      viewLines.appendChild(viewLine);
+    }
+    loadingState = 'divs-created';
+  }
+
+  /**
+   * Populate a single line with text content (simulates Monaco's async text loading)
+   */
+  function populateLine(index) {
+    const lineDiv = viewLines.children[index];
+    if (!lineDiv) return;
+
+    const text = lines[index];
+    const outerSpan = document.createElement('span');
+    const innerSpan = document.createElement('span');
+    innerSpan.textContent = text;
+    outerSpan.appendChild(innerSpan);
+    lineDiv.appendChild(outerSpan);
+  }
+
+  /**
+   * Start loading text content (call this to simulate focus triggering load)
+   */
+  function startLoading() {
+    if (loadingState === 'complete') return;
+    loadingState = 'loading';
+
+    // Schedule initial delay
+    const startLoad = () => {
+      for (let i = 0; i < lines.length; i++) {
+        const delay = initialDelayMs + i * lineDelayMs;
+        const timeoutId = setTimeout(() => {
+          if (isConnected) {
+            populateLine(i);
+            currentLineIndex = i + 1;
+            if (currentLineIndex >= lines.length) {
+              loadingState = 'complete';
+            }
+          }
+        }, delay);
+        pendingTimeouts.push(timeoutId);
+      }
+    };
+
+    if (createEmptyDivsFirst && emptyDivDelayMs > 0) {
+      const timeoutId = setTimeout(startLoad, emptyDivDelayMs);
+      pendingTimeouts.push(timeoutId);
+    } else {
+      startLoad();
+    }
+  }
+
+  /**
+   * Simulate disconnecting (virtualization)
+   */
+  function disconnect() {
+    isConnected = false;
+    // Clear pending timeouts
+    for (const id of pendingTimeouts) {
+      clearTimeout(id);
+    }
+    pendingTimeouts = [];
+  }
+
+  /**
+   * Simulate reconnecting (scroll back into view)
+   */
+  function reconnect() {
+    isConnected = true;
+    // Reset loading state if not complete
+    if (loadingState !== 'complete') {
+      loadingState = createEmptyDivsFirst ? 'divs-created' : 'initial';
+      currentLineIndex = 0;
+    }
+  }
+
+  /**
+   * Get the current state for inspection
+   */
+  function getState() {
+    return {
+      isConnected,
+      loadingState,
+      linesLoaded: currentLineIndex,
+      totalLines: lines.length,
+    };
+  }
+
+  /**
+   * Force complete loading (for synchronous tests)
+   */
+  function completeLoadingSync() {
+    for (const id of pendingTimeouts) {
+      clearTimeout(id);
+    }
+    pendingTimeouts = [];
+
+    // Ensure divs exist
+    if (viewLines.children.length === 0) {
+      for (let i = 0; i < lines.length; i++) {
+        const viewLine = document.createElement('div');
+        viewLine.className = 'view-line';
+        viewLine.style.top = `${i * 20}px`;
+        viewLines.appendChild(viewLine);
+      }
+    }
+
+    // Populate all lines
+    for (let i = 0; i < lines.length; i++) {
+      const lineDiv = viewLines.children[i];
+      if (lineDiv && lineDiv.children.length === 0) {
+        populateLine(i);
+      }
+    }
+
+    loadingState = 'complete';
+    currentLineIndex = lines.length;
+  }
+
+  return {
+    element: editor,
+    document,
+    textarea,
+    startLoading,
+    disconnect,
+    reconnect,
+    getState,
+    completeLoadingSync,
+    // For cleanup
+    cleanup: () => {
+      for (const id of pendingTimeouts) {
+        clearTimeout(id);
+      }
+    },
+  };
+}
+
+// ============================================================================
+// Tests: Monaco Lazy-Loading Simulator
+// ============================================================================
+
+describe('MockMonacoEditor - Basic functionality', () => {
+  test('creates editor with correct DOM structure', () => {
+    const mock = createMockMonacoEditor({ lines: ['line1', 'line2'] });
+    try {
+      expect(mock.element.className).toBe('monaco-editor');
+      expect(mock.element.querySelector('.view-lines')).toBeTruthy();
+      expect(mock.element.querySelector('textarea.inputarea')).toBeTruthy();
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('creates empty view-line divs immediately by default', () => {
+    const mock = createMockMonacoEditor({ lines: ['line1', 'line2', 'line3'] });
+    try {
+      const viewLines = mock.element.querySelectorAll('.view-line');
+      expect(viewLines.length).toBe(3);
+      // Divs exist but should be empty (no text content yet)
+      expect(viewLines[0].textContent).toBe('');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('extractCodeFromEditor returns empty string before loading', () => {
+    const mock = createMockMonacoEditor({ lines: ['SELECT * FROM table'] });
+    try {
+      const code = extractCodeFromEditor(mock.element);
+      expect(code).toBe('');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('completeLoadingSync populates all text immediately', () => {
+    const mock = createMockMonacoEditor({ lines: ['SELECT *', 'FROM table'] });
+    try {
+      mock.completeLoadingSync();
+      const code = extractCodeFromEditor(mock.element);
+      expect(code).toBe('SELECT *\nFROM table');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('getState reports correct loading status', () => {
+    const mock = createMockMonacoEditor({ lines: ['a', 'b', 'c'] });
+    try {
+      expect(mock.getState().loadingState).toBe('divs-created');
+      expect(mock.getState().linesLoaded).toBe(0);
+
+      mock.completeLoadingSync();
+
+      expect(mock.getState().loadingState).toBe('complete');
+      expect(mock.getState().linesLoaded).toBe(3);
+    } finally {
+      mock.cleanup();
+    }
+  });
+});
+
+describe('MockMonacoEditor - Simulates lazy loading behavior', () => {
+  test('text appears asynchronously after startLoading', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['line1'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 10,
+      initialDelayMs: 10,
+    });
+
+    try {
+      // Initially empty
+      expect(extractCodeFromEditor(mock.element)).toBe('');
+
+      // Start loading
+      mock.startLoading();
+
+      // Still empty immediately
+      expect(extractCodeFromEditor(mock.element)).toBe('');
+
+      // Wait for loading to complete
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Now text should be present
+      expect(extractCodeFromEditor(mock.element)).toBe('line1');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('lines load incrementally with lineDelayMs', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['line1', 'line2', 'line3'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 0,
+      initialDelayMs: 0,
+      lineDelayMs: 20,
+    });
+
+    try {
+      mock.startLoading();
+
+      // First line should appear quickly
+      await new Promise((r) => setTimeout(r, 10));
+      const code1 = extractCodeFromEditor(mock.element);
+      expect(code1).toContain('line1');
+
+      // Wait for all lines
+      await new Promise((r) => setTimeout(r, 100));
+      const code2 = extractCodeFromEditor(mock.element);
+      expect(code2).toBe('line1\nline2\nline3');
+    } finally {
+      mock.cleanup();
+    }
+  });
+});
+
+describe('MockMonacoEditor - Virtualization simulation', () => {
+  test('disconnect stops loading', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['line1', 'line2'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 50,
+      initialDelayMs: 50,
+    });
+
+    try {
+      mock.startLoading();
+
+      // Disconnect before loading completes
+      mock.disconnect();
+
+      expect(mock.getState().isConnected).toBeFalsy();
+
+      // Wait and verify loading didn't complete
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Text should not have loaded
+      expect(extractCodeFromEditor(mock.element)).toBe('');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('reconnect allows loading to resume', () => {
+    const mock = createMockMonacoEditor({ lines: ['test'] });
+
+    try {
+      mock.disconnect();
+      expect(mock.getState().isConnected).toBeFalsy();
+
+      mock.reconnect();
+      expect(mock.getState().isConnected).toBeTruthy();
+    } finally {
+      mock.cleanup();
+    }
+  });
+});
+
+describe('MockMonacoEditor - Stability checking scenarios', () => {
+  /**
+   * Simulates the stability checking loop from content.js
+   * Returns the extracted text once stable, or null if timeout
+   */
+  async function waitForStableText(
+    editor,
+    maxAttempts = 20,
+    pollMs = 10,
+    requiredStableChecks = 3,
+  ) {
+    let lastText = '';
+    let stableCount = 0;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, pollMs));
+
+      const currentText = extractCodeFromEditor(editor);
+
+      if (currentText.length > 0 && currentText === lastText) {
+        stableCount++;
+        if (stableCount >= requiredStableChecks) {
+          return { text: currentText, attempts: i + 1 };
+        }
+      } else {
+        stableCount = 0;
+        lastText = currentText;
+      }
+    }
+
+    return { text: null, attempts: maxAttempts };
+  }
+
+  test('stability check succeeds for fast-loading cell', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['SELECT * FROM users'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 5,
+      initialDelayMs: 5,
+    });
+
+    try {
+      mock.startLoading();
+
+      const result = await waitForStableText(mock.element);
+
+      expect(result.text).toBe('SELECT * FROM users');
+      expect(result.attempts).toBeGreaterThan(0);
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('stability check handles slow-loading cell', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['line1', 'line2'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 20,
+      initialDelayMs: 20,
+      lineDelayMs: 30,
+    });
+
+    try {
+      mock.startLoading();
+
+      // This simulates a cell that loads over ~70ms total
+      const result = await waitForStableText(mock.element, 30, 10);
+
+      expect(result.text).toBe('line1\nline2');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('stability check detects changing text (not falsely stable)', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['a', 'b', 'c', 'd', 'e'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 0,
+      initialDelayMs: 0,
+      lineDelayMs: 15, // Lines arrive every 15ms
+    });
+
+    try {
+      mock.startLoading();
+
+      // With 5 lines at 15ms each = 75ms total
+      // Stability check should wait for all lines
+      const result = await waitForStableText(mock.element, 30, 10);
+
+      // Should have all 5 lines
+      expect(result.text).toBe('a\nb\nc\nd\ne');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('stability check times out for never-loading cell', async () => {
+    const mock = createMockMonacoEditor({
+      lines: ['test'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 1000, // Very slow - won't complete in time
+    });
+
+    try {
+      mock.startLoading();
+
+      // Short timeout - will fail
+      const result = await waitForStableText(mock.element, 5, 10);
+
+      expect(result.text).toBeNull();
+      expect(result.attempts).toBe(5);
+    } finally {
+      mock.cleanup();
+    }
+  });
+});
+
+// ============================================================================
 // Run Tests
 // ============================================================================
 
