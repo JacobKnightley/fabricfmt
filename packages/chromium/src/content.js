@@ -533,8 +533,25 @@ function _getTotalCellCount() {
 
 /**
  * Find the scrollable container for the notebook
+ * Cached for the duration of a format operation (fabric-format-au2)
  */
+let cachedScrollContainer = null;
+let scrollContainerCacheTime = 0;
+const SCROLL_CONTAINER_CACHE_MS = 5000; // Cache for 5 seconds
+
 function findScrollContainer() {
+  // Use cached value if recent (avoids expensive DOM scan)
+  if (
+    cachedScrollContainer &&
+    Date.now() - scrollContainerCacheTime < SCROLL_CONTAINER_CACHE_MS
+  ) {
+    if (cachedScrollContainer.isConnected) {
+      return cachedScrollContainer;
+    }
+    // Cache is stale, clear it
+    cachedScrollContainer = null;
+  }
+
   const knownContainers = [
     '.notebook-container',
     '.notebook-cell-list',
@@ -546,6 +563,8 @@ function findScrollContainer() {
   for (const selector of knownContainers) {
     const el = document.querySelector(selector);
     if (el && el.scrollHeight > el.clientHeight) {
+      cachedScrollContainer = el;
+      scrollContainerCacheTime = Date.now();
       return el;
     }
   }
@@ -562,15 +581,22 @@ function findScrollContainer() {
 
   for (const container of scrollables) {
     if (container.querySelector('.monaco-editor')) {
+      cachedScrollContainer = container;
+      scrollContainerCacheTime = Date.now();
       return container;
     }
   }
 
   if (scrollables.length > 0) {
+    cachedScrollContainer = scrollables[0];
+    scrollContainerCacheTime = Date.now();
     return scrollables[0];
   }
 
-  return document.scrollingElement || document.documentElement;
+  const fallback = document.scrollingElement || document.documentElement;
+  cachedScrollContainer = fallback;
+  scrollContainerCacheTime = Date.now();
+  return fallback;
 }
 
 // ============================================================================
@@ -1059,8 +1085,11 @@ async function formatAllCells() {
     for (let attempt = 0; attempt < 100 && stableChecks < 3; attempt++) {
       await new Promise((r) => setTimeout(r, pollInterval));
 
-      // Re-query editor in case DOM was recreated during virtualization
-      editor = cellContainer.querySelector('.monaco-editor');
+      // Re-query editor only if disconnected (fabric-format-8hk)
+      // Monaco/Fabric may recreate DOM elements during virtualization
+      if (!editor?.isConnected) {
+        editor = cellContainer.querySelector('.monaco-editor');
+      }
       if (editor) {
         // Full text extraction - this is what we'll actually format
         const currentText = extractCodeFromEditor(editor);
