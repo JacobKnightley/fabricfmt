@@ -756,7 +756,6 @@ describe('Cleanup handler management', () => {
  * @param {string[]} options.lines Array of code lines to simulate
  * @param {number} options.initialDelayMs Delay before any text appears (default: 0)
  * @param {number} options.lineDelayMs Delay between lines loading (default: 0)
- * @param {number} options.charDelayMs Delay for partial character loading (default: 0)
  * @param {boolean} options.createEmptyDivsFirst Create empty .view-line divs before text (default: true)
  * @param {number} options.emptyDivDelayMs How long divs stay empty (default: 50)
  * @returns {Object} Mock editor with DOM and control methods
@@ -766,7 +765,6 @@ function createMockMonacoEditor(options = {}) {
     lines = ['SELECT * FROM table'],
     initialDelayMs = 0,
     lineDelayMs = 0,
-    charDelayMs = 0,
     createEmptyDivsFirst = true,
     emptyDivDelayMs = 50,
   } = options;
