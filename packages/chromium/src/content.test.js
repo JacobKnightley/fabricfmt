@@ -1212,6 +1212,520 @@ describe('MockMonacoEditor - Stability checking scenarios', () => {
       mock.cleanup();
     }
   });
+
+  test('ANTI-TEST: stability check returns null when content keeps changing', async () => {
+    // This tests that we DON'T falsely report stability when content is still changing
+    const mock = createMockMonacoEditor({
+      lines: ['line1', 'line2', 'line3', 'line4', 'line5'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 5,
+      lineDelayMs: 50, // Lines load slowly, one at a time
+    });
+
+    try {
+      mock.startLoading();
+
+      // Only 3 attempts with short interval - content will still be changing
+      const result = await waitForStableText(mock.element, 3, 10);
+
+      // Should fail to stabilize because content keeps changing
+      expect(result.text).toBeNull();
+      expect(result.attempts).toBe(3);
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('ANTI-TEST: empty DOM skeleton detected as empty, not as content', () => {
+    // Verifies that empty .view-line divs (DOM skeleton) don't fool extraction
+    const mock = createMockMonacoEditor({
+      lines: ['SELECT * FROM table'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 1000, // Never loads in this test
+    });
+
+    try {
+      // Don't start loading - stays as empty skeleton
+      const extracted = extractCodeFromEditor(mock.element);
+
+      // Should be empty string, NOT the line content
+      expect(extracted).toBe('');
+    } finally {
+      mock.cleanup();
+    }
+  });
+
+  test('ANTI-TEST: partial content detected correctly', async () => {
+    // Verifies we can detect when content is only partially loaded
+    const mock = createMockMonacoEditor({
+      lines: ['line1', 'line2', 'line3'],
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: 5,
+      lineDelayMs: 100, // Slow line-by-line loading
+    });
+
+    try {
+      mock.startLoading();
+
+      // Wait just enough for first line
+      await new Promise((r) => setTimeout(r, 30));
+
+      const partial = extractCodeFromEditor(mock.element);
+
+      // Should have partial content (not all 3 lines)
+      // This proves we're not falsely seeing full content
+      expect(partial.includes('line3')).toBe(false);
+    } finally {
+      mock.cleanup();
+    }
+  });
+});
+
+// ============================================================================
+// Mock Notebook - Multi-Cell Virtualization Simulator
+// ============================================================================
+// Simulates a Fabric notebook with two-phase lazy loading.
+//
+// KEY BEHAVIOR: Two-phase loading
+//   1. SCROLL → DOM skeleton loads (empty .view-line divs appear)
+//   2. FOCUS/CLICK → Content finishes loading (text spans populate)
+//
+// If you only scroll without focusing, you get the DOM structure but not the
+// full text content. This is why copy/paste didn't work until clicking into
+// the cell - the text wasn't fully loaded yet.
+//
+// This lazy-load pattern reduces initial page load time significantly.
+//
+// Real scenario: Fast scrolling to the bottom shows cells 1-7, then random
+// cells in the middle, then cells 20-25. The formatAllCells loop must handle
+// cells that weren't fully rendered when scrolled past quickly.
+// ============================================================================
+
+/**
+ * Creates a mock Fabric notebook with multiple cells that virtualize.
+ *
+ * @param {Object} options Configuration options
+ * @param {Array<{lines: string[], language: string}>} options.cells Array of cell configs
+ * @param {number} options.visibleWindowSize How many cells can be "visible" at once (default: 7)
+ * @param {number} options.loadDelayMs Delay for cell text to load after becoming visible
+ * @returns {Object} Mock notebook with scrollTo, getCells, and formatAll methods
+ */
+function createMockNotebook(options = {}) {
+  const {
+    cells = [
+      { lines: ['SELECT * FROM table1'], language: 'sql' },
+      { lines: ['print("hello")'], language: 'python' },
+    ],
+    visibleWindowSize = 7,
+    loadDelayMs = 30,
+  } = options;
+
+  const dom = new JSDOM('<div class="notebook-container"></div>');
+  const document = dom.window.document;
+  const container = document.querySelector('.notebook-container');
+
+  // Create cell containers and mock editors
+  const cellMocks = [];
+  for (let i = 0; i < cells.length; i++) {
+    const cellConfig = cells[i];
+
+    // Create cell container
+    const cellContainer = document.createElement('div');
+    cellContainer.className = 'nteract-cell-container';
+    cellContainer.setAttribute('data-cell-id', `cell-${i}`);
+    container.appendChild(cellContainer);
+
+    // Create mock editor for this cell
+    const mock = createMockMonacoEditor({
+      lines: cellConfig.lines,
+      createEmptyDivsFirst: true,
+      emptyDivDelayMs: loadDelayMs,
+      initialDelayMs: loadDelayMs / 2,
+    });
+
+    // Add editor to cell container
+    cellContainer.appendChild(mock.element);
+
+    // Add data-mode-id for language detection
+    const modeDiv = document.createElement('div');
+    modeDiv.setAttribute('data-mode-id', cellConfig.language);
+    mock.element.appendChild(modeDiv);
+
+    cellMocks.push({
+      index: i,
+      container: cellContainer,
+      editor: mock,
+      isVisible: false,
+      isFocused: false,
+      wasEverVisible: false,
+    });
+  }
+
+  // Track current scroll position
+  let currentVisibleStart = 0;
+
+  /**
+   * Update which cells are "visible" based on scroll position.
+   * Phase 1: Scroll brings DOM skeleton into view (empty divs).
+   * Cells outside the visible window get disconnected (virtualized).
+   */
+  function updateVisibility(centerIndex) {
+    const halfWindow = Math.floor(visibleWindowSize / 2);
+    const newStart = Math.max(0, centerIndex - halfWindow);
+    const newEnd = Math.min(cells.length - 1, centerIndex + halfWindow);
+
+    for (const cellMock of cellMocks) {
+      const wasVisible = cellMock.isVisible;
+      const isNowVisible =
+        cellMock.index >= newStart && cellMock.index <= newEnd;
+
+      if (wasVisible && !isNowVisible) {
+        // Cell scrolled out of view - virtualize it (content unloaded to save memory)
+        cellMock.editor.disconnect();
+        cellMock.isVisible = false;
+        cellMock.isFocused = false;
+      } else if (!wasVisible && isNowVisible) {
+        // Phase 1: Cell scrolled into view - DOM skeleton loads
+        // But content is NOT fully loaded yet (empty divs only)
+        cellMock.editor.reconnect();
+        // Don't start loading yet - that happens on focus
+        cellMock.isVisible = true;
+        cellMock.wasEverVisible = true;
+      }
+    }
+
+    currentVisibleStart = newStart;
+  }
+
+  /**
+   * Scroll to a specific cell.
+   * Phase 1: DOM skeleton loads (empty .view-line divs appear).
+   * Content is NOT yet populated - need focus for that.
+   */
+  function scrollTo(cellIndex) {
+    updateVisibility(cellIndex);
+
+    // Return the cell mock for the target
+    return cellMocks[cellIndex];
+  }
+
+  /**
+   * Focus/click a cell - this completes content loading.
+   * Phase 2: Text content finishes loading into the DOM skeleton.
+   *
+   * Without focus, you have empty divs. After focus, text populates.
+   * This is why copy/paste didn't work without clicking into the cell.
+   */
+  function focusCell(cellIndex) {
+    const cellMock = cellMocks[cellIndex];
+
+    // Must be visible (scrolled into view) first
+    if (!cellMock.isVisible) {
+      scrollTo(cellIndex);
+    }
+
+    // Phase 2: Focus triggers content loading
+    if (!cellMock.isFocused) {
+      cellMock.editor.startLoading();
+      cellMock.isFocused = true;
+    }
+
+    return cellMock;
+  }
+
+  /**
+   * Get all cell containers (like document.querySelectorAll)
+   */
+  function getCellContainers() {
+    return cellMocks.map((m) => m.container);
+  }
+
+  /**
+   * Get current visibility state for debugging
+   */
+  function getVisibilityState() {
+    return cellMocks.map((m) => ({
+      index: m.index,
+      isVisible: m.isVisible,
+      wasEverVisible: m.wasEverVisible,
+      loadingState: m.editor.getState().loadingState,
+    }));
+  }
+
+  /**
+   * Simulate fast scroll: jump from top to bottom, only briefly visiting middle cells
+   */
+  function fastScrollToBottom() {
+    // First, cells 0-6 are visible (at top)
+    updateVisibility(3);
+
+    // Quick jump to middle - cells might not fully load
+    updateVisibility(Math.floor(cells.length / 2));
+
+    // Jump to bottom
+    updateVisibility(cells.length - 4);
+  }
+
+  /**
+   * Clean up all mock editors
+   */
+  function cleanup() {
+    for (const cellMock of cellMocks) {
+      cellMock.editor.cleanup();
+    }
+  }
+
+  return {
+    container,
+    document,
+    scrollTo,
+    focusCell,
+    getCellContainers,
+    getVisibilityState,
+    fastScrollToBottom,
+    cleanup,
+    // Expose internals for testing
+    _cellMocks: cellMocks,
+  };
+}
+
+// ============================================================================
+// Tests: Notebook-Level Virtualization
+// ============================================================================
+
+describe('MockNotebook - Multi-cell virtualization', () => {
+  test('creates notebook with correct structure', () => {
+    const notebook = createMockNotebook({
+      cells: [
+        { lines: ['line1'], language: 'python' },
+        { lines: ['line2'], language: 'sql' },
+      ],
+    });
+
+    try {
+      const containers = notebook.getCellContainers();
+      expect(containers.length).toBe(2);
+      expect(containers[0].getAttribute('data-cell-id')).toBe('cell-0');
+      expect(containers[1].getAttribute('data-cell-id')).toBe('cell-1');
+    } finally {
+      notebook.cleanup();
+    }
+  });
+
+  test('scrollTo makes cells visible', () => {
+    const notebook = createMockNotebook({
+      cells: Array(10)
+        .fill(null)
+        .map((_, i) => ({
+          lines: [`cell ${i}`],
+          language: 'python',
+        })),
+      visibleWindowSize: 5,
+    });
+
+    try {
+      // Initially no cells are visible
+      const before = notebook.getVisibilityState();
+      expect(before.every((c) => !c.isVisible)).toBeTruthy();
+
+      // Scroll to cell 5
+      notebook.scrollTo(5);
+
+      const after = notebook.getVisibilityState();
+      // Cells 3-7 should be visible (window of 5 centered on 5)
+      expect(after[3].isVisible).toBeTruthy();
+      expect(after[4].isVisible).toBeTruthy();
+      expect(after[5].isVisible).toBeTruthy();
+      expect(after[6].isVisible).toBeTruthy();
+      expect(after[7].isVisible).toBeTruthy();
+      // Cell 0 should not be visible
+      expect(after[0].isVisible).toBeFalsy();
+    } finally {
+      notebook.cleanup();
+    }
+  });
+
+  test('cells virtualize when scrolled away', () => {
+    const notebook = createMockNotebook({
+      cells: Array(20)
+        .fill(null)
+        .map((_, i) => ({
+          lines: [`cell ${i}`],
+          language: 'python',
+        })),
+      visibleWindowSize: 5,
+    });
+
+    try {
+      // Scroll to top (cells 0-4 visible)
+      notebook.scrollTo(2);
+      expect(notebook.getVisibilityState()[0].isVisible).toBeTruthy();
+      expect(notebook.getVisibilityState()[2].isVisible).toBeTruthy();
+
+      // Scroll to bottom (cells 15-19 visible)
+      notebook.scrollTo(17);
+      expect(notebook.getVisibilityState()[0].isVisible).toBeFalsy();
+      expect(notebook.getVisibilityState()[17].isVisible).toBeTruthy();
+    } finally {
+      notebook.cleanup();
+    }
+  });
+});
+
+describe('MockNotebook - Fast scroll scenario (cells 1-7, skip middle, 20-25)', () => {
+  test('fast scroll leaves middle cells never-visited', () => {
+    const notebook = createMockNotebook({
+      cells: Array(25)
+        .fill(null)
+        .map((_, i) => ({
+          lines: [`SELECT * FROM table_${i}`],
+          language: 'sql',
+        })),
+      visibleWindowSize: 7,
+    });
+
+    try {
+      // Simulate fast scroll behavior
+      notebook.fastScrollToBottom();
+
+      const state = notebook.getVisibilityState();
+
+      // Check that some middle cells were never visible
+      // (the exact ones depend on window size, but middle should be skipped)
+      const neverVisited = state.filter((c) => !c.wasEverVisible);
+      expect(neverVisited.length).toBeGreaterThan(0);
+
+      // First few cells should have been visited
+      expect(state[0].wasEverVisible || state[1].wasEverVisible).toBeTruthy();
+
+      // Last few cells should be currently visible
+      expect(
+        state[state.length - 1].isVisible || state[state.length - 2].isVisible,
+      ).toBeTruthy();
+    } finally {
+      notebook.cleanup();
+    }
+  });
+
+  test('formatAllCells pattern handles virtualization correctly', async () => {
+    const notebook = createMockNotebook({
+      cells: Array(15)
+        .fill(null)
+        .map((_, i) => ({
+          lines: [`cell_${i}_content`],
+          language: i % 2 === 0 ? 'sql' : 'python',
+        })),
+      visibleWindowSize: 5,
+      loadDelayMs: 10,
+    });
+
+    try {
+      const results = [];
+
+      // Simulate formatAllCells loop:
+      // For each cell: scroll (DOM skeleton), focus (content loads), wait, extract
+      const containers = notebook.getCellContainers();
+
+      for (let i = 0; i < containers.length; i++) {
+        // Phase 1: Scroll to cell - DOM skeleton loads, others virtualize
+        notebook.scrollTo(i);
+
+        // Phase 2: Focus cell - content finishes loading
+        notebook.focusCell(i);
+
+        // Wait for text to stabilize
+        const cellMock = notebook._cellMocks[i];
+        const result = await waitForStableText(cellMock.editor.element, 20, 10);
+
+        results.push({
+          index: i,
+          text: result.text,
+          attempts: result.attempts,
+        });
+      }
+
+      // All cells should have been successfully extracted
+      for (let i = 0; i < results.length; i++) {
+        expect(results[i].text).toBe(`cell_${i}_content`);
+      }
+    } finally {
+      notebook.cleanup();
+    }
+  });
+
+  test('cells that were scrolled past quickly need re-stabilization', async () => {
+    const notebook = createMockNotebook({
+      cells: Array(20)
+        .fill(null)
+        .map((_, i) => ({
+          lines: [`content_${i}`],
+          language: 'sql',
+        })),
+      visibleWindowSize: 5,
+      loadDelayMs: 20,
+    });
+
+    try {
+      // Fast scroll from top to bottom - cell 10 briefly enters viewport
+      // but was never focused, so content didn't load
+      notebook.fastScrollToBottom();
+
+      // Now come back to cell 10 - need scroll + focus to get content
+      notebook.scrollTo(10);
+
+      const cellMock = notebook._cellMocks[10];
+
+      // After scroll only, content is NOT loaded (just DOM skeleton)
+      const afterScrollOnly = extractCodeFromEditor(cellMock.editor.element);
+      expect(afterScrollOnly).toBe(''); // Empty - no focus yet!
+
+      // Phase 2: Focus triggers content loading
+      notebook.focusCell(10);
+
+      // Wait for stability - the stability loop is why this works
+      const result = await waitForStableText(cellMock.editor.element, 20, 10);
+
+      // Should eventually get full content
+      expect(result.text).toBe('content_10');
+    } finally {
+      notebook.cleanup();
+    }
+  });
+
+  test('scroll-only does not load content, focus is required', async () => {
+    const notebook = createMockNotebook({
+      cells: [
+        { lines: ['SELECT 1'], language: 'sql' },
+        { lines: ['SELECT 2'], language: 'sql' },
+      ],
+      loadDelayMs: 5,
+    });
+
+    try {
+      // Scroll to cell but don't focus
+      notebook.scrollTo(0);
+
+      const cellMock = notebook._cellMocks[0];
+
+      // Should have DOM skeleton but no content
+      expect(cellMock.isVisible).toBe(true);
+      expect(cellMock.isFocused).toBe(false);
+
+      // No text content yet
+      const textBeforeFocus = extractCodeFromEditor(cellMock.editor.element);
+      expect(textBeforeFocus).toBe('');
+
+      // Now focus - content loads
+      notebook.focusCell(0);
+      expect(cellMock.isFocused).toBe(true);
+
+      // Wait for load
+      const result = await waitForStableText(cellMock.editor.element, 20, 10);
+      expect(result.text).toBe('SELECT 1');
+    } finally {
+      notebook.cleanup();
+    }
+  });
 });
 
 // ============================================================================
