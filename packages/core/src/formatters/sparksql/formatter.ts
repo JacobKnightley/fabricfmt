@@ -18,7 +18,6 @@ import antlr4 from 'antlr4';
 import { MAX_LINE_WIDTH } from './constants.js';
 import {
   detectCollapseDirectives,
-  type ForceInlineRange,
   type FormatDirectiveInfo,
   hasFormatOff,
   isFmtInlineComment,
@@ -996,10 +995,7 @@ function formatTokens(
     const tokenLine = tokens[i]?.line || 0;
     const lineBasedForceCollapse =
       formatDirectives.collapsedLines.has(tokenLine);
-    const grammarBasedForceCollapse = isForceInlineOpen(
-      tokenIndex,
-      forceInlineRanges,
-    );
+    const grammarBasedForceCollapse = forceInlineRanges.has(tokenIndex);
     const forceCollapse = lineBasedForceCollapse || grammarBasedForceCollapse;
 
     if (
@@ -1144,28 +1140,23 @@ function formatTokens(
 
 /**
  * Scan tokens for fmt:inline comments and find their enclosing expressions.
- * Returns an array of ForceInlineRange for expressions that should not be expanded.
+ * Returns a Set of open token indices for expressions that should not be expanded.
  *
  * The approach:
  * 1. Find all comment tokens that contain fmt:inline
  * 2. For each such comment, find the immediately preceding token (or same position)
  * 3. Check if that token is within any multi-arg function, window def, or pivot
- * 4. If so, add that construct's token range to the force-inline ranges
+ * 4. If so, add that construct's open token index to the set
  */
 function findForceInlineRanges(
   tokens: any[],
   analysis: AnalyzerResult,
-): ForceInlineRange[] {
-  const ranges: ForceInlineRange[] = [];
-  const addedRanges = new Set<string>(); // Avoid duplicates: "open-close"
+): Set<number> {
+  const forceInlineOpenIndices = new Set<number>();
 
-  // Helper to add a range if not already added
-  const addRange = (openIdx: number, closeIdx: number) => {
-    const key = `${openIdx}-${closeIdx}`;
-    if (!addedRanges.has(key)) {
-      addedRanges.add(key);
-      ranges.push({ openTokenIndex: openIdx, closeTokenIndex: closeIdx });
-    }
+  // Helper to add an open index to the set
+  const addRange = (openIdx: number) => {
+    forceInlineOpenIndices.add(openIdx);
   };
 
   // Scan all tokens for fmt:inline comments
@@ -1202,11 +1193,11 @@ function findForceInlineRanges(
             precedingTokenIdx >= openIdx &&
             precedingTokenIdx <= info.closeParenIndex
           ) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
           // Also check if comment is right after close paren (common placement)
           if (precedingTokenIdx === info.closeParenIndex) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
         }
 
@@ -1216,10 +1207,10 @@ function findForceInlineRanges(
             precedingTokenIdx >= openIdx &&
             precedingTokenIdx <= info.closeParenIndex
           ) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
           if (precedingTokenIdx === info.closeParenIndex) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
         }
 
@@ -1229,27 +1220,17 @@ function findForceInlineRanges(
             precedingTokenIdx >= openIdx &&
             precedingTokenIdx <= info.closeParenIndex
           ) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
           if (precedingTokenIdx === info.closeParenIndex) {
-            addRange(openIdx, info.closeParenIndex);
+            addRange(openIdx);
           }
         }
       }
     }
   }
 
-  return ranges;
-}
-
-/**
- * Check if a token index is the opening of a force-inline expression.
- */
-function isForceInlineOpen(
-  tokenIndex: number,
-  ranges: ForceInlineRange[],
-): boolean {
-  return ranges.some((r) => r.openTokenIndex === tokenIndex);
+  return forceInlineOpenIndices;
 }
 
 /**
