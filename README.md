@@ -93,8 +93,11 @@ Requires a Chromium-based browser with Manifest V3 and WASM support.
 
 ## Supported Languages
 
-- Spark SQL
-- Python
+| Language | CLI/Library | Browser Extension |
+| -------- | ----------- | ----------------- |
+| Spark SQL | ✅ | ✅ |
+| Python | ✅ | ✅ |
+| Markdown | ✅ | Coming soon |
 
 > **Note:** All other language cells are preserved as-is.
 
@@ -211,3 +214,16 @@ result = some_function(a, b,    c,d,  e)  # fmt: skip
 ```
 
 See [Ruff's documentation](https://docs.astral.sh/ruff/formatter/#format-suppression) for more details.
+
+### Markdown
+
+---
+
+Formatted via [dprint](https://dprint.dev/) with sensible defaults:
+
+- 140 character line width
+- 2-space indentation
+- Maintains original prose wrapping
+- Normalizes list markers and block quotes
+
+Markdown cells in Fabric notebooks use a special `# MARKDOWN ********************` header format. The formatter handles stripping and re-adding comment prefixes automatically.
