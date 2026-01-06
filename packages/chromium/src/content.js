@@ -848,16 +848,23 @@ function showNotification(message, type = 'success') {
 }
 
 // ============================================================================
-// Debug: Cell Discovery Logging (fabric-format-wphq)
+// Debug: Tabbed Debug Popup (fabric-format-wphq)
 // ============================================================================
 
 /**
- * Show a popup modal with debug output that can be easily copied.
+ * Show a tabbed popup modal with debug output that can be easily copied.
+ * @param {Array<{name: string, content: string}>} tabs - Array of tab objects
  */
-function showDebugPopup(content) {
+function showTabbedDebugPopup(tabs) {
   // Remove existing popup if any
   const existing = document.getElementById('fabric-formatter-debug-popup');
   if (existing) existing.remove();
+  const existingBackdrop = document.getElementById(
+    'fabric-formatter-debug-backdrop',
+  );
+  if (existingBackdrop) existingBackdrop.remove();
+
+  let activeTabIndex = 0;
 
   const popup = document.createElement('div');
   popup.id = 'fabric-formatter-debug-popup';
@@ -866,10 +873,10 @@ function showDebugPopup(content) {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 600px;
+    width: 700px;
     max-width: 90vw;
-    height: 80vh;
-    max-height: 800px;
+    height: 85vh;
+    max-height: 900px;
     background: #1e1e1e;
     border: 1px solid #444;
     border-radius: 8px;
@@ -880,6 +887,7 @@ function showDebugPopup(content) {
     font-family: 'Consolas', 'Monaco', monospace;
   `;
 
+  // Header with title and close button
   const header = document.createElement('div');
   header.style.cssText = `
     display: flex;
@@ -892,11 +900,11 @@ function showDebugPopup(content) {
   `;
 
   const title = document.createElement('span');
-  title.textContent = 'Fabric Format - Debug Info';
+  title.textContent = 'Fabric Format - Debug';
   title.style.cssText = 'color: #fff; font-weight: bold; font-size: 14px;';
 
-  const buttonContainer = document.createElement('div');
-  buttonContainer.style.cssText = 'display: flex; gap: 8px;';
+  const headerButtons = document.createElement('div');
+  headerButtons.style.cssText = 'display: flex; gap: 8px;';
 
   const copyBtn = document.createElement('button');
   copyBtn.textContent = '📋 Copy';
@@ -909,9 +917,82 @@ function showDebugPopup(content) {
     cursor: pointer;
     font-size: 12px;
   `;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = `
+    padding: 6px 10px;
+    background: #444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+
+  headerButtons.appendChild(copyBtn);
+  headerButtons.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(headerButtons);
+
+  // Tab bar
+  const tabBar = document.createElement('div');
+  tabBar.style.cssText = `
+    display: flex;
+    background: #252526;
+    border-bottom: 1px solid #444;
+  `;
+
+  const tabButtons = [];
+  const contentArea = document.createElement('textarea');
+  contentArea.readOnly = true;
+  contentArea.style.cssText = `
+    flex: 1;
+    padding: 16px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    resize: none;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow: auto;
+    white-space: pre;
+  `;
+
+  function switchTab(index) {
+    activeTabIndex = index;
+    contentArea.value = tabs[index].content;
+    tabButtons.forEach((btn, i) => {
+      btn.style.background = i === index ? '#1e1e1e' : '#2d2d2d';
+      btn.style.borderBottom =
+        i === index ? '2px solid #0078d4' : '2px solid transparent';
+      btn.style.color = i === index ? '#fff' : '#888';
+    });
+  }
+
+  tabs.forEach((tab, index) => {
+    const tabBtn = document.createElement('button');
+    tabBtn.textContent = tab.name;
+    tabBtn.style.cssText = `
+      padding: 10px 16px;
+      background: #2d2d2d;
+      color: #888;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    `;
+    tabBtn.addEventListener('click', () => switchTab(index));
+    tabButtons.push(tabBtn);
+    tabBar.appendChild(tabBtn);
+  });
+
+  // Copy button copies current tab content
   copyBtn.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(content);
+      await navigator.clipboard.writeText(tabs[activeTabIndex].content);
       copyBtn.textContent = '✓ Copied!';
       setTimeout(() => {
         copyBtn.textContent = '📋 Copy';
@@ -921,44 +1002,18 @@ function showDebugPopup(content) {
     }
   });
 
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = '✕ Close';
-  closeBtn.style.cssText = `
-    padding: 6px 12px;
-    background: #444;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-  `;
-  closeBtn.addEventListener('click', () => popup.remove());
-
-  buttonContainer.appendChild(copyBtn);
-  buttonContainer.appendChild(closeBtn);
-  header.appendChild(title);
-  header.appendChild(buttonContainer);
-
-  const textArea = document.createElement('textarea');
-  textArea.value = content;
-  textArea.readOnly = true;
-  textArea.style.cssText = `
-    flex: 1;
-    padding: 16px;
-    background: #1e1e1e;
-    color: #d4d4d4;
-    border: none;
-    resize: none;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    overflow: auto;
-  `;
+  // Close handlers
+  const closePopup = () => {
+    popup.remove();
+    backdrop.remove();
+  };
+  closeBtn.addEventListener('click', closePopup);
 
   popup.appendChild(header);
-  popup.appendChild(textArea);
+  popup.appendChild(tabBar);
+  popup.appendChild(contentArea);
 
-  // Add backdrop
+  // Backdrop
   const backdrop = document.createElement('div');
   backdrop.id = 'fabric-formatter-debug-backdrop';
   backdrop.style.cssText = `
@@ -970,25 +1025,20 @@ function showDebugPopup(content) {
     background: rgba(0,0,0,0.5);
     z-index: 999998;
   `;
-  backdrop.addEventListener('click', () => {
-    popup.remove();
-    backdrop.remove();
-  });
+  backdrop.addEventListener('click', closePopup);
 
   document.body.appendChild(backdrop);
   document.body.appendChild(popup);
 
-  // Focus the textarea for immediate keyboard selection
-  textArea.focus();
-  textArea.select();
+  // Initialize first tab
+  switchTab(0);
+  contentArea.focus();
 }
 
 /**
- * Debug function to collect all cells found in the DOM along with their container hierarchy.
- * This helps identify how cells are grouped when multiple notebooks are open.
- * Activated via a separate button to avoid triggering formatting.
+ * Generate cell discovery debug content
  */
-function debugLogCellDiscovery() {
+function generateCellDiscoveryContent() {
   const lines = [];
   const addLine = (text = '') => lines.push(text);
   const addSection = (title) => {
@@ -1238,8 +1288,157 @@ function debugLogCellDiscovery() {
   addLine();
   addSection('END CELL DISCOVERY DEBUG');
 
-  // Show popup with the content
-  showDebugPopup(lines.join('\n'));
+  return lines.join('\n');
+}
+
+/**
+ * Generate format preview content showing current vs formatted text for each cell
+ */
+async function generateFormatPreviewContent() {
+  const lines = [];
+  const addLine = (text = '') => lines.push(text);
+  const addSection = (title) => {
+    addLine('='.repeat(80));
+    addLine(title);
+    addLine('='.repeat(80));
+  };
+  const addSubSection = (title) => {
+    addLine('-'.repeat(80));
+    addLine(title);
+    addLine('-'.repeat(80));
+  };
+
+  addSection('FORMAT PREVIEW');
+  addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine();
+
+  // Ensure formatters are initialized
+  if (!pythonInitialized) {
+    const initialized = await initializeFormatters();
+    if (!initialized) {
+      addLine('ERROR: Failed to initialize formatters');
+      return lines.join('\n');
+    }
+  }
+
+  // Get visible cells only (active notebook)
+  const allCellContainers = document.querySelectorAll(
+    '.nteract-cell-container[data-cell-id]',
+  );
+  const cellContainers = Array.from(allCellContainers).filter((cell) => {
+    const style = window.getComputedStyle(cell);
+    return style.visibility !== 'hidden';
+  });
+
+  addLine(`Total cells in active notebook: ${cellContainers.length}`);
+  addLine();
+
+  let formattableCount = 0;
+  let wouldChangeCount = 0;
+  let alreadyFormattedCount = 0;
+  let errorCount = 0;
+
+  for (let i = 0; i < cellContainers.length; i++) {
+    const cellContainer = cellContainers[i];
+    const cellId = cellContainer.getAttribute('data-cell-id');
+    const editor = cellContainer.querySelector('.monaco-editor');
+
+    addSubSection(`CELL ${i + 1}`);
+    addLine(`Cell ID: ${cellId}`);
+
+    if (!editor) {
+      addLine(`Type: no-editor (markdown/output cell)`);
+      addLine(`Status: SKIPPED`);
+      addLine();
+      continue;
+    }
+
+    const cellType = detectCellType(editor);
+    const language = mapCellTypeToLanguage(cellType);
+
+    addLine(`Detected Type: ${cellType}`);
+    addLine(`Language: ${language || 'unsupported'}`);
+
+    if (!language) {
+      addLine(`Status: SKIPPED (unsupported language)`);
+      addLine();
+      continue;
+    }
+
+    formattableCount++;
+
+    // Extract current code
+    const currentCode = extractCodeFromEditor(editor);
+
+    if (!currentCode.trim()) {
+      addLine(`Status: SKIPPED (empty cell)`);
+      addLine();
+      continue;
+    }
+
+    addLine(
+      `Current Code (${currentCode.length} chars, ${currentCode.split('\n').length} lines):`,
+    );
+    addLine('```');
+    addLine(currentCode);
+    addLine('```');
+    addLine();
+
+    // Format the code (without applying)
+    const context = { cellIndex: i + 1, language };
+    const result = formatCell(currentCode, language, context);
+
+    if (result.error) {
+      errorCount++;
+      addLine(`Status: ERROR`);
+      addLine(`Error: ${result.error}`);
+    } else if (!result.changed) {
+      alreadyFormattedCount++;
+      addLine(`Status: ALREADY FORMATTED ✓`);
+    } else {
+      wouldChangeCount++;
+      addLine(`Status: WOULD CHANGE`);
+      addLine();
+      addLine(
+        `Formatted Code (${result.formatted.length} chars, ${result.formatted.split('\n').length} lines):`,
+      );
+      addLine('```');
+      addLine(result.formatted);
+      addLine('```');
+    }
+    addLine();
+  }
+
+  addSection('SUMMARY');
+  addLine(`Total cells: ${cellContainers.length}`);
+  addLine(`Formattable cells: ${formattableCount}`);
+  addLine(`Would change: ${wouldChangeCount}`);
+  addLine(`Already formatted: ${alreadyFormattedCount}`);
+  addLine(`Errors: ${errorCount}`);
+  addLine();
+  addSection('END FORMAT PREVIEW');
+
+  return lines.join('\n');
+}
+
+/**
+ * Main debug function - shows tabbed popup with all debug info
+ */
+async function debugLogCellDiscovery() {
+  // Generate cell discovery content (sync)
+  const cellDiscoveryContent = generateCellDiscoveryContent();
+
+  // Show popup immediately with cell discovery, then load format preview
+  const tabs = [
+    { name: '📋 Cell Discovery', content: cellDiscoveryContent },
+    { name: '🔄 Format Preview', content: 'Loading format preview...' },
+  ];
+
+  showTabbedDebugPopup(tabs);
+
+  // Generate format preview async and update tab
+  const formatPreviewContent = await generateFormatPreviewContent();
+  tabs[1].content = formatPreviewContent;
 }
 
 // ============================================================================
